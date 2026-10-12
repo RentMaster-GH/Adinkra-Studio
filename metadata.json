@@ -1,0 +1,6 @@
+{
+  "name": "Adinkra Studio",
+  "description": "An advanced, collaborative prompt engineering workspace with real-time Sankofa version history, multi-model evaluation, and Gemini 3 intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
