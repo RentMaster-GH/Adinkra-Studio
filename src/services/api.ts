@@ -31,6 +31,69 @@ export interface GenerateResponseData {
   groundingMetadata?: any;
 }
 
+function sanitizeErrorMessage(rawText: string, status?: number): string {
+  if (!rawText) {
+    if (status) return `Server error (${status}): Upstream service temporarily unavailable. Please retry.`;
+    return 'An unexpected network error occurred. Please try again.';
+  }
+
+  // Handle Cloud Run / Google Front End proxy 404 / 502 / 503 "The page could not be found NOT_FOUND cpt1::..."
+  if (
+    rawText.includes('NOT_FOUND cpt1::') ||
+    rawText.includes('cpt1::') ||
+    rawText.toLowerCase().includes('the page could not be found')
+  ) {
+    return 'The development server was momentarily cycling during an environment update. It has reconnected — please click "Retry Prompt" or send your prompt again.';
+  }
+
+  if (rawText.toLowerCase().includes('failed to fetch') || rawText.toLowerCase().includes('networkerror')) {
+    return 'Network connection briefly interrupted. The server is online — please click "Retry Prompt".';
+  }
+
+  if (
+    rawText.includes('503') ||
+    rawText.toLowerCase().includes('high demand') ||
+    rawText.toLowerCase().includes('unavailable')
+  ) {
+    return 'The Gemini model upstream is experiencing temporary high demand. Click "Retry Prompt" to reconnect automatically.';
+  }
+
+  return rawText;
+}
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxAttempts = 3
+): Promise<Response> {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt++;
+    try {
+      const response = await fetch(url, options);
+      // Statuses that indicate container starting or transient proxy errors (e.g. 404 from ingress before container binds)
+      const isTransientProxy =
+        response.status === 404 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504;
+
+      if (isTransientProxy && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 700 * attempt));
+        continue;
+      }
+      return response;
+    } catch (networkErr: any) {
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 700 * attempt));
+        continue;
+      }
+      throw networkErr;
+    }
+  }
+  return fetch(url, options);
+}
+
 export const api = {
   async getModels(): Promise<ModelInfo[]> {
     const res = await fetch('/api/models');
@@ -98,7 +161,7 @@ export const api = {
   ): Promise<GenerateResponseData> {
     if (payload.stream && onChunk) {
       const startTime = Date.now();
-      const response = await fetch('/api/generate', {
+      const response = await fetchWithRetry('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, stream: true }),
@@ -122,10 +185,7 @@ export const api = {
           }
         } catch {}
 
-        throw new Error(
-          errorMsg ||
-            `Server error (${response.status}): The Gemini model may be experiencing temporary high demand upstream. Please try again.`
-        );
+        throw new Error(sanitizeErrorMessage(errorMsg, response.status));
       }
 
       const reader = response.body?.getReader();
@@ -171,7 +231,7 @@ export const api = {
       }
 
       if (streamError && !fullText) {
-        throw new Error(streamError);
+        throw new Error(sanitizeErrorMessage(streamError));
       }
 
       const latencyMs = Date.now() - startTime;
@@ -189,7 +249,7 @@ export const api = {
         model: usedModel,
       };
     } else {
-      const res = await fetch('/api/generate', {
+      const res = await fetchWithRetry('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, stream: false }),
@@ -204,7 +264,7 @@ export const api = {
           const txt = await res.text().catch(() => '');
           errMessage = txt;
         }
-        throw new Error(errMessage || 'Generation failed. Please try again.');
+        throw new Error(sanitizeErrorMessage(errMessage, res.status));
       }
 
       return res.json();
@@ -216,14 +276,14 @@ export const api = {
     prompt: string;
     systemInstruction?: string;
   }): Promise<any> {
-    const res = await fetch('/api/optimize-prompt', {
+    const res = await fetchWithRetry('/api/optimize-prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Optimization request failed');
+      throw new Error(sanitizeErrorMessage(err.error, res.status));
     }
     const data = await res.json();
     return data.result;
