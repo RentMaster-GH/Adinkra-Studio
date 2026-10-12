@@ -15,7 +15,8 @@ import {
   Flame,
   Clock,
   Zap,
-  TrendingDown
+  TrendingDown,
+  Download
 } from 'lucide-react';
 import { StudioMode, Author, DailyTokenQuota } from '../types';
 import { AdinkraGlyph } from './AdinkraGlyph';
@@ -36,6 +37,7 @@ interface HeaderProps {
   onOpenCommitModal: () => void;
   onOpenPhilosophyModal: () => void;
   onOpenShareModal: () => void;
+  onExportWorkspace?: () => void;
   onRun: () => void;
   onStop?: () => void;
   isRunning: boolean;
@@ -61,6 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCommitModal,
   onOpenPhilosophyModal,
   onOpenShareModal,
+  onExportWorkspace,
   onRun,
   isRunning,
   versionCount,
@@ -531,10 +534,23 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onOpenShareModal}
           className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-md transition-colors"
-          title="Share or Export Workspace"
+          title="Share or Collaborate Workspace"
         >
           <Share2 size={16} />
         </button>
+
+        {/* Export Workspace Button */}
+        {onExportWorkspace && (
+          <button
+            onClick={onExportWorkspace}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-amber-500/50 hover:text-amber-300 rounded-md transition-colors font-medium shadow-sm group"
+            title="Export Workspace: Download promptState, versions, and comments as a local JSON file"
+          >
+            <Download size={13} className="text-amber-400 group-hover:scale-110 transition-transform" />
+            <span className="hidden xl:inline">Export Workspace</span>
+            <span className="xl:hidden hidden sm:inline">Export</span>
+          </button>
+        )}
 
         {/* Get Code Modal CTA */}
         <button

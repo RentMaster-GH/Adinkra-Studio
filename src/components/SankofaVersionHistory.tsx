@@ -14,7 +14,8 @@ import {
   FileText, 
   Sliders, 
   Copy,
-  Plus
+  Plus,
+  Download
 } from 'lucide-react';
 import { VersionSnapshot, PromptState } from '../types';
 import { AdinkraGlyph } from './AdinkraGlyph';
@@ -26,6 +27,7 @@ interface SankofaVersionHistoryProps {
   onForkBranch: (version: VersionSnapshot, branchName: string) => void;
   onOpenCommitModal: () => void;
   onTestVersion: (version: VersionSnapshot) => void;
+  onExportWorkspace?: () => void;
 }
 
 export const SankofaVersionHistory: React.FC<SankofaVersionHistoryProps> = ({
@@ -35,6 +37,7 @@ export const SankofaVersionHistory: React.FC<SankofaVersionHistoryProps> = ({
   onForkBranch,
   onOpenCommitModal,
   onTestVersion,
+  onExportWorkspace,
 }) => {
   const [selectedVersionId, setSelectedVersionId] = useState<string>(
     versions[0]?.id || ''
@@ -128,13 +131,25 @@ export const SankofaVersionHistory: React.FC<SankofaVersionHistoryProps> = ({
               </span>
             </div>
           </div>
-          <button
-            onClick={onOpenCommitModal}
-            className="flex items-center gap-1 px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 rounded text-xs font-medium transition-colors"
-          >
-            <Plus size={11} />
-            <span>Commit</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onExportWorkspace && (
+              <button
+                onClick={onExportWorkspace}
+                className="flex items-center gap-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/50 text-slate-300 hover:text-amber-300 rounded text-xs font-medium transition-colors"
+                title="Export Workspace: Download promptState, versions, and comments as a local JSON file"
+              >
+                <Download size={11} className="text-amber-400" />
+                <span>Export</span>
+              </button>
+            )}
+            <button
+              onClick={onOpenCommitModal}
+              className="flex items-center gap-1 px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 rounded text-xs font-medium transition-colors"
+            >
+              <Plus size={11} />
+              <span>Commit</span>
+            </button>
+          </div>
         </div>
 
         {/* Branch Filter Tabs */}

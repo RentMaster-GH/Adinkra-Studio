@@ -14,6 +14,7 @@ import {
   DailyTokenQuota
 } from './types';
 import { api } from './services/api';
+import { Download, X } from 'lucide-react';
 import { Header } from './components/Header';
 import { SystemInstructionsPane } from './components/SystemInstructionsPane';
 import { PromptEditor } from './components/PromptEditor';
@@ -508,6 +509,51 @@ export default function App() {
     }
   };
 
+  // Export Workspace Bundle (promptState, versions, comments) as local JSON file
+  const [exportToast, setExportToast] = useState<{ message: string; filename: string } | null>(null);
+
+  const handleExportWorkspace = useCallback(() => {
+    try {
+      const sanitizedTitle = (currentPromptState.title || 'adinkra-workspace')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/-+/g, '-');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = `${sanitizedTitle}-workspace-${dateStr}.json`;
+
+      const workspaceBundle = {
+        app: 'Adinkra Studio',
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        promptState: currentPromptState,
+        versions,
+        comments,
+      };
+
+      const jsonStr = JSON.stringify(workspaceBundle, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+
+      setExportToast({
+        message: `Saved ${versions.length} versions & ${comments.length} comments`,
+        filename,
+      });
+
+      setTimeout(() => {
+        setExportToast(null);
+      }, 4000);
+    } catch (err: any) {
+      console.error('Failed to export workspace:', err);
+    }
+  }, [currentPromptState, versions, comments]);
+
   // Import workspace bundle
   const handleImportWorkspace = (imported: any) => {
     if (imported.promptState) {
@@ -548,6 +594,7 @@ export default function App() {
         onOpenCommitModal={() => setShowCommitModal(true)}
         onOpenPhilosophyModal={() => setShowPhilosophyModal(true)}
         onOpenShareModal={() => setShowShareModal(true)}
+        onExportWorkspace={handleExportWorkspace}
         onRun={handleRun}
         isRunning={isGenerating}
         versionCount={versions.length}
@@ -626,6 +673,7 @@ export default function App() {
             onRestoreVersion={handleRestoreVersion}
             onForkBranch={handleForkBranch}
             onOpenCommitModal={() => setShowCommitModal(true)}
+            onExportWorkspace={handleExportWorkspace}
             onTestVersion={(v) => {
               handleRestoreVersion(v);
               setTimeout(() => handleRun(), 100);
@@ -701,6 +749,7 @@ export default function App() {
         versions={versions}
         comments={comments}
         onImportWorkspace={handleImportWorkspace}
+        onExportWorkspace={handleExportWorkspace}
       />
 
       <PromptOptimizerModal
@@ -727,6 +776,27 @@ export default function App() {
         onToggleResolve={handleToggleResolveComment}
         collaborators={collaborators}
       />
+
+      {/* Export Workspace Toast Notification */}
+      {exportToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-[#131728]/95 border border-amber-500/50 text-slate-100 px-4 py-3 rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+            <Download size={16} />
+          </div>
+          <div className="flex flex-col text-left">
+            <span className="text-xs font-semibold text-amber-300">Workspace Exported</span>
+            <span className="text-[11px] text-slate-300 font-mono tracking-tight">{exportToast.filename}</span>
+            <span className="text-[10px] text-slate-400">{exportToast.message}</span>
+          </div>
+          <button
+            onClick={() => setExportToast(null)}
+            className="text-slate-400 hover:text-white p-1 rounded-md hover:bg-slate-800 transition-colors ml-2"
+            title="Dismiss notification"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

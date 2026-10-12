@@ -9,6 +9,7 @@ interface ShareModalProps {
   versions: VersionSnapshot[];
   comments: WorkspaceComment[];
   onImportWorkspace: (importedData: any) => void;
+  onExportWorkspace?: () => void;
 }
 
 export const ShareModal: React.FC<ShareModalProps> = ({
@@ -18,6 +19,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   versions,
   comments,
   onImportWorkspace,
+  onExportWorkspace,
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -31,6 +33,10 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   };
 
   const handleExportJson = () => {
+    if (onExportWorkspace) {
+      onExportWorkspace();
+      return;
+    }
     const data = {
       app: 'Adinkra Studio',
       exportedAt: new Date().toISOString(),
@@ -113,20 +119,26 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
           {/* Export / Import Workspace */}
           <div className="p-3 bg-[#131724] border border-slate-800 rounded-xl space-y-2.5">
-            <div className="text-[11px] font-semibold text-slate-200">
-              Workspace Backup & Portability
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-slate-200">
+                Workspace Backup & Portability
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                promptState · versions · comments
+              </span>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={handleExportJson}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded-lg font-medium transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded-lg font-medium transition-colors group"
+                title="Download promptState, versions, and comments as a local JSON file"
               >
-                <Download size={13} className="text-amber-400" />
-                <span>Export JSON Bundle</span>
+                <Download size={13} className="text-amber-400 group-hover:scale-110 transition-transform" />
+                <span>Export Workspace</span>
               </button>
               <label className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded-lg font-medium cursor-pointer transition-colors">
                 <Upload size={13} className="text-blue-400" />
-                <span>Import JSON</span>
+                <span>Import Workspace</span>
                 <input
                   type="file"
                   accept=".json"
