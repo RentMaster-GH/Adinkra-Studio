@@ -251,7 +251,36 @@ app.post('/api/workspace/comment/resolve', (req: Request, res: Response) => {
   res.json({ success: true, comment });
 });
 
-// Prompt Execution Endpoint (Streaming and Unary)
+// Helper to parse and humanize Gemini API errors
+function formatGeminiError(error: any): string {
+  if (!error) return 'An unexpected error occurred during execution.';
+  const rawMsg = error.message || String(error);
+  try {
+    const jsonMatch = rawMsg.match(/\{[\s\S]*"error"[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.error?.code === 503 || parsed.error?.status === 'UNAVAILABLE') {
+        return 'Gemini model is experiencing temporary high demand upstream. Automatic retry was attempted. Please try sending again in a few moments.';
+      }
+      if (parsed.error?.code === 429 || parsed.error?.status === 'RESOURCE_EXHAUSTED') {
+        return 'Rate limit reached on Gemini API. Please wait a few seconds before re-running.';
+      }
+      if (parsed.error?.message) {
+        return parsed.error.message;
+      }
+    }
+  } catch {}
+
+  if (rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE') || rawMsg.includes('high demand')) {
+    return 'Gemini model is currently experiencing temporary high demand from Google AI Studio. Please retry your prompt in a few seconds.';
+  }
+  if (rawMsg.includes('429') || rawMsg.includes('RESOURCE_EXHAUSTED')) {
+    return 'Rate limit reached on Gemini API. Please wait a moment before sending another prompt.';
+  }
+  return rawMsg;
+}
+
+// Prompt Execution Endpoint (Streaming and Unary with resilience & auto-retry)
 app.post('/api/generate', async (req: Request, res: Response) => {
   const startTime = Date.now();
   try {
@@ -333,44 +362,131 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       contentsPayload = contents;
     }
 
+    // Candidate models to attempt: requested model first, with fallbacks for transient 503 high demand
+    const modelsToTry = [model];
+    if (model === 'gemini-3.8-flash') {
+      modelsToTry.push('gemini-3.1-flash-lite');
+    }
+
     if (stream) {
-      // Stream response using Server-Sent Events (SSE)
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
+      let streamSuccess = false;
+      let lastStreamError: any = null;
+      let activeUsedModel = model;
 
-      const responseStream = await ai.models.generateContentStream({
-        model,
-        contents: contentsPayload,
-        config,
-      });
+      for (const currentModel of modelsToTry) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const responseStream = await ai.models.generateContentStream({
+              model: currentModel,
+              contents: contentsPayload,
+              config,
+            });
 
-      let fullText = '';
-      for await (const chunk of responseStream) {
-        const text = chunk.text || '';
-        fullText += text;
-        res.write(`data: ${JSON.stringify({ text, done: false })}\n\n`);
+            // If we successfully initialized stream, start sending SSE headers
+            if (!res.headersSent) {
+              res.setHeader('Content-Type', 'text/event-stream');
+              res.setHeader('Cache-Control', 'no-cache');
+              res.setHeader('Connection', 'keep-alive');
+              res.flushHeaders?.();
+            }
+
+            let fullText = '';
+            for await (const chunk of responseStream) {
+              const text = chunk.text || '';
+              fullText += text;
+              res.write(`data: ${JSON.stringify({ text, done: false, model: currentModel })}\n\n`);
+            }
+
+            const latencyMs = Date.now() - startTime;
+            res.write(
+              `data: ${JSON.stringify({
+                done: true,
+                fullText,
+                latencyMs,
+                model: currentModel,
+              })}\n\n`
+            );
+            res.end();
+            streamSuccess = true;
+            activeUsedModel = currentModel;
+            break;
+          } catch (err: any) {
+            lastStreamError = err;
+            const errMsg = String(err?.message || '');
+            const isTransient =
+              errMsg.includes('503') ||
+              errMsg.includes('UNAVAILABLE') ||
+              errMsg.includes('high demand') ||
+              errMsg.includes('429');
+
+            // If headers have already been sent to client, we cannot cleanly retry the stream
+            if (res.headersSent) {
+              const formattedError = formatGeminiError(err);
+              res.write(`data: ${JSON.stringify({ error: formattedError, done: true })}\n\n`);
+              res.end();
+              return;
+            }
+
+            if (isTransient && attempt === 0) {
+              // Wait 700ms jitter before retrying
+              await new Promise((r) => setTimeout(r, 700));
+              continue;
+            }
+            break; // Try fallback model in outer loop
+          }
+        }
+        if (streamSuccess) break;
       }
 
-      const latencyMs = Date.now() - startTime;
-      res.write(
-        `data: ${JSON.stringify({
-          done: true,
-          fullText,
-          latencyMs,
-          model,
-        })}\n\n`
-      );
-      res.end();
+      if (!streamSuccess) {
+        const formatted = formatGeminiError(lastStreamError);
+        console.error('Streaming failed after retries:', lastStreamError);
+        if (!res.headersSent) {
+          res.status(500).json({ error: formatted, model: activeUsedModel });
+        } else {
+          res.write(`data: ${JSON.stringify({ error: formatted, done: true })}\n\n`);
+          res.end();
+        }
+      }
       return;
     }
 
-    // Unary response
-    const response = await ai.models.generateContent({
-      model,
-      contents: contentsPayload,
-      config,
-    });
+    // Unary response with auto-retry
+    let response: any = null;
+    let lastUnaryError: any = null;
+    let usedModel = model;
+
+    for (const currentModel of modelsToTry) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          response = await ai.models.generateContent({
+            model: currentModel,
+            contents: contentsPayload,
+            config,
+          });
+          usedModel = currentModel;
+          break;
+        } catch (err: any) {
+          lastUnaryError = err;
+          const errMsg = String(err?.message || '');
+          const isTransient =
+            errMsg.includes('503') ||
+            errMsg.includes('UNAVAILABLE') ||
+            errMsg.includes('high demand') ||
+            errMsg.includes('429');
+          if (isTransient && attempt === 0) {
+            await new Promise((r) => setTimeout(r, 700));
+            continue;
+          }
+          break;
+        }
+      }
+      if (response) break;
+    }
+
+    if (!response) {
+      throw lastUnaryError || new Error('Failed to generate response from model.');
+    }
 
     const latencyMs = Date.now() - startTime;
     const text = response.text || '';
@@ -388,14 +504,20 @@ app.post('/api/generate', async (req: Request, res: Response) => {
         outputTokens,
         totalTokens: inputTokens + outputTokens,
       },
-      model,
+      model: usedModel,
       groundingMetadata: response.candidates?.[0]?.groundingMetadata || null,
     });
   } catch (error: any) {
     console.error('Gemini generateContent error:', error);
-    res.status(500).json({
-      error: error.message || 'An error occurred during prompt execution.',
-    });
+    const humanError = formatGeminiError(error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: humanError,
+      });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: humanError, done: true })}\n\n`);
+      res.end();
+    }
   }
 });
 

@@ -105,13 +105,34 @@ export const api = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to stream response');
+        let errorMsg = '';
+        try {
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMsg = errorData.error;
+          } else {
+            const rawText = await response.text();
+            try {
+              const parsed = JSON.parse(rawText);
+              errorMsg = parsed.error || rawText;
+            } catch {
+              errorMsg = rawText;
+            }
+          }
+        } catch {}
+
+        throw new Error(
+          errorMsg ||
+            `Server error (${response.status}): The Gemini model may be experiencing temporary high demand upstream. Please try again.`
+        );
       }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullText = '';
+      let streamError: string | null = null;
+      let usedModel = payload.model;
 
       if (!reader) throw new Error('Response body stream is not available');
 
@@ -129,6 +150,12 @@ export const api = {
             const jsonStr = line.slice(6);
             try {
               const data = JSON.parse(jsonStr);
+              if (data.error) {
+                streamError = data.error;
+              }
+              if (data.model) {
+                usedModel = data.model;
+              }
               if (data.text) {
                 fullText += data.text;
                 onChunk(fullText);
@@ -143,6 +170,10 @@ export const api = {
         }
       }
 
+      if (streamError && !fullText) {
+        throw new Error(streamError);
+      }
+
       const latencyMs = Date.now() - startTime;
       const inputTokens = Math.ceil((payload.prompt?.length || 50) / 4);
       const outputTokens = Math.ceil(fullText.length / 4);
@@ -155,7 +186,7 @@ export const api = {
           outputTokens,
           totalTokens: inputTokens + outputTokens,
         },
-        model: payload.model,
+        model: usedModel,
       };
     } else {
       const res = await fetch('/api/generate', {
@@ -165,8 +196,15 @@ export const api = {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Generation failed');
+        let errMessage = '';
+        try {
+          const err = await res.json();
+          errMessage = err.error;
+        } catch {
+          const txt = await res.text().catch(() => '');
+          errMessage = txt;
+        }
+        throw new Error(errMessage || 'Generation failed. Please try again.');
       }
 
       return res.json();

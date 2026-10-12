@@ -22,6 +22,7 @@ interface OutputViewProps {
   groundingSources?: Array<{ title?: string; url?: string; snippet?: string }>;
   onClearOutput?: () => void;
   error?: string | null;
+  onRetry?: () => void;
 }
 
 export const OutputView: React.FC<OutputViewProps> = ({
@@ -31,6 +32,7 @@ export const OutputView: React.FC<OutputViewProps> = ({
   groundingSources = [],
   onClearOutput,
   error,
+  onRetry,
 }) => {
   const [copied, setCopied] = useState(false);
   const [viewFormat, setViewFormat] = useState<'formatted' | 'raw'>('formatted');
@@ -116,11 +118,29 @@ export const OutputView: React.FC<OutputViewProps> = ({
       {/* Output Content */}
       <div className="flex-1 overflow-y-auto p-4 font-sans text-xs min-h-0">
         {error ? (
-          <div className="p-3 bg-rose-950/40 border border-rose-800/80 rounded-lg text-rose-200 space-y-1">
-            <div className="font-semibold text-xs flex items-center gap-1.5">
-              <span>Execution Error</span>
+          <div className="p-3.5 bg-rose-950/40 border border-rose-800/80 rounded-lg text-rose-200 space-y-2.5">
+            <div className="font-semibold text-xs flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-rose-300">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping inline-block" />
+                <span>Execution Error</span>
+              </div>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  disabled={isGenerating}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-rose-900/80 hover:bg-rose-800 text-rose-100 border border-rose-600/70 rounded text-[11px] font-semibold transition-all shadow-sm active:scale-95"
+                >
+                  <RotateCcw size={11} className={isGenerating ? 'animate-spin' : ''} />
+                  <span>Retry Prompt</span>
+                </button>
+              )}
             </div>
-            <p className="text-[11px] font-mono text-rose-300/90 leading-relaxed">{error}</p>
+            <p className="text-[11px] font-mono text-rose-300/90 leading-relaxed bg-black/30 p-2 rounded border border-rose-900/50">
+              {error}
+            </p>
+            <p className="text-[10px] text-rose-300/70">
+              💡 Tip: If Google AI Studio servers are experiencing temporary high demand, clicking <strong className="text-rose-200">Retry Prompt</strong> will automatically retry your request.
+            </p>
           </div>
         ) : !output && !isGenerating ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">

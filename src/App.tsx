@@ -600,6 +600,7 @@ export default function App() {
                   groundingSources={groundingSources}
                   error={error}
                   onClearOutput={() => setOutput('')}
+                  onRetry={() => handleRun()}
                 />
               </div>
             </div>
