@@ -181,6 +181,19 @@ export default function App() {
     } catch {}
   };
 
+  const handleBurnTokens = (amount: number) => {
+    setDailyQuota((prev) => {
+      const updated = {
+        ...prev,
+        usedToday: Math.min(prev.dailyLimit, prev.usedToday + amount),
+      };
+      try {
+        localStorage.setItem('adinkra_daily_quota', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
   // Output & Execution State
   const [output, setOutput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -249,7 +262,7 @@ export default function App() {
   };
 
   // Run Prompt Action
-  const handleRun = useCallback(async () => {
+  const handleRun = useCallback(async (overrideTurns?: ChatTurn[]) => {
     if (isGenerating) return;
     setIsGenerating(true);
     setError(null);
@@ -257,6 +270,8 @@ export default function App() {
     setGroundingSources([]);
 
     try {
+      const activeTurns = overrideTurns || turns;
+
       // Interpolate {{variables}} into prompt text
       let finalPrompt = userPrompt;
       for (const [key, val] of Object.entries(variables)) {
@@ -267,8 +282,8 @@ export default function App() {
 
       // If in Chat mode, package chat turns
       let contentsPayload: any = finalPrompt;
-      if (promptMode === 'chat' && turns.length > 0) {
-        contentsPayload = turns.map((t) => ({
+      if (promptMode === 'chat' && activeTurns.length > 0) {
+        contentsPayload = activeTurns.map((t) => ({
           role: t.role,
           parts: [{ text: t.content }],
         }));
@@ -289,6 +304,18 @@ export default function App() {
       );
 
       setOutput(res.text);
+
+      // If in chat mode, append model turn to chat conversation history
+      if (promptMode === 'chat' && res.text) {
+        setTurns((prev) => [
+          ...prev,
+          {
+            id: `turn-model-${Date.now()}`,
+            role: 'model',
+            content: res.text,
+          },
+        ]);
+      }
 
       const estimatedCost = (res.usage.totalTokens / 1_000_000) * 0.15;
       setMetrics({
@@ -333,6 +360,18 @@ export default function App() {
     systemInstruction,
     parameters,
   ]);
+
+  const handleSendChatMessage = (messageText: string) => {
+    if (!messageText.trim() || isGenerating) return;
+    const newTurn: ChatTurn = {
+      id: `turn-user-${Date.now()}`,
+      role: 'user',
+      content: messageText.trim(),
+    };
+    const updated = [...turns, newTurn];
+    setTurns(updated);
+    handleRun(updated);
+  };
 
   // Keyboard shortcut: Cmd+Enter or Ctrl+Enter to run prompt
   useEffect(() => {
@@ -514,6 +553,7 @@ export default function App() {
         versionCount={versions.length}
         dailyQuota={dailyQuota}
         onResetDailyQuota={handleResetDailyQuota}
+        onBurnTokens={handleBurnTokens}
       />
 
       {/* Main Workspace Body based on Mode */}
@@ -548,6 +588,9 @@ export default function App() {
                   onRunTestCase={handleRunTestCase}
                   onRunAllTestCases={handleRunAllTestCases}
                   isEvaluatingBatch={isEvaluatingBatch}
+                  onRun={handleRun}
+                  isGenerating={isGenerating}
+                  onSendChatMessage={handleSendChatMessage}
                 />
 
                 <OutputView

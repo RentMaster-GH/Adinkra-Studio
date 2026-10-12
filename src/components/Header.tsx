@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Play, 
   Square, 
@@ -11,7 +11,11 @@ import {
   Share2, 
   Layers, 
   Info,
-  ChevronDown
+  ChevronDown,
+  Flame,
+  Clock,
+  Zap,
+  TrendingDown
 } from 'lucide-react';
 import { StudioMode, Author, DailyTokenQuota } from '../types';
 import { AdinkraGlyph } from './AdinkraGlyph';
@@ -38,6 +42,7 @@ interface HeaderProps {
   versionCount: number;
   dailyQuota: DailyTokenQuota;
   onResetDailyQuota?: () => void;
+  onBurnTokens?: (amount: number) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -61,12 +66,39 @@ export const Header: React.FC<HeaderProps> = ({
   versionCount,
   dailyQuota,
   onResetDailyQuota,
+  onBurnTokens,
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(title);
   const [showBranchMenu, setShowBranchMenu] = useState(false);
   const [newBranchInput, setNewBranchInput] = useState('');
   const [showQuotaPopover, setShowQuotaPopover] = useState(false);
+  const [timeUntilReset, setTimeUntilReset] = useState('');
+
+  // Live countdown to midnight UTC reset
+  useEffect(() => {
+    const updateCountdown = () => {
+      const now = new Date();
+      const nextMidnight = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() + 1,
+        0, 0, 0, 0
+      ));
+      const diff = Math.max(0, nextMidnight.getTime() - now.getTime());
+      const h = Math.floor(diff / (1000 * 60 * 60));
+      const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const s = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeUntilReset(`${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`);
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const remainingTokens = Math.max(0, dailyQuota.dailyLimit - dailyQuota.usedToday);
+  const remainingPct = Math.max(0, Math.min(100, (remainingTokens / dailyQuota.dailyLimit) * 100));
+  const burnedPct = Math.max(0, Math.min(100, (dailyQuota.usedToday / dailyQuota.dailyLimit) * 100));
 
   const handleTitleSubmit = () => {
     if (tempTitle.trim()) {
@@ -251,114 +283,198 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Actions: Team Presence, Comments, Get Code, Commit, Run */}
       <div className="flex items-center gap-2">
-        {/* Daily Token Allowance Meter (3x Google AI Studio Capacity) */}
+        {/* Visual 'Token Burner' Indicator with Progress Bar */}
         <div className="relative">
           <button
             onClick={() => setShowQuotaPopover(!showQuotaPopover)}
-            className="flex items-center gap-2 px-2.5 py-1 bg-slate-900/90 hover:bg-slate-800 border border-amber-500/30 hover:border-amber-500/60 rounded-md transition-all text-xs"
-            title="View 3x Daily Token Quota (Adinkra Studio vs Google AI Studio)"
+            className="flex items-center gap-2.5 px-3 py-1.5 bg-[#111422] hover:bg-[#161a2c] border border-amber-500/40 hover:border-amber-400 rounded-lg transition-all text-xs shadow-sm group"
+            title="Token Burner: Countdown of remaining daily token quota relative to 3,000,000 limit"
           >
-            <AdinkraGlyph name="dono" size={13} className="text-amber-400" />
-            <div className="flex flex-col text-left leading-none">
-              <div className="flex items-center gap-1 font-mono text-[10px] text-slate-300">
-                <span className="text-amber-400 font-bold">
-                  {(dailyQuota.usedToday / 1000).toFixed(1)}k
+            {/* Animated Flame Icon */}
+            <div className="relative flex items-center justify-center">
+              <Flame
+                size={16}
+                className={`transition-colors ${
+                  remainingPct > 50
+                    ? 'text-amber-400 fill-amber-500/30 group-hover:text-amber-300 animate-pulse'
+                    : remainingPct > 20
+                    ? 'text-orange-400 fill-orange-500/30 group-hover:text-orange-300 animate-pulse'
+                    : 'text-rose-500 fill-rose-500/40 animate-bounce'
+                }`}
+              />
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-orange-400 rounded-full animate-ping" />
+            </div>
+
+            {/* Token Burner Countdown Label & Value */}
+            <div className="flex flex-col text-left leading-none gap-1">
+              <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                <span className="text-amber-300 font-sans font-bold text-[9px] uppercase tracking-wider">
+                  Token Burner
                 </span>
-                <span className="text-slate-500">/</span>
-                <span className="text-slate-400">
-                  {(dailyQuota.dailyLimit / 1_000_000).toFixed(1)}M
+                <span className="text-slate-500">·</span>
+                <span className="text-slate-200 font-bold font-mono">
+                  {(remainingTokens / 1_000_000).toFixed(2)}M
                 </span>
+                <span className="text-slate-500 font-mono text-[9px]">rem. / 3.0M</span>
               </div>
-              <div className="w-16 h-1 bg-slate-800 rounded-full mt-1 overflow-hidden">
+
+              {/* Progress Bar in the Header */}
+              <div className="w-24 h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-700/80 shadow-inner">
                 <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full"
-                  style={{
-                    width: `${Math.min(100, Math.max(3, (dailyQuota.usedToday / dailyQuota.dailyLimit) * 100))}%`,
-                  }}
+                  className={`h-full transition-all duration-300 rounded-full ${
+                    remainingPct > 50
+                      ? 'bg-gradient-to-r from-emerald-400 via-amber-400 to-amber-500'
+                      : remainingPct > 20
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                      : 'bg-gradient-to-r from-rose-500 to-red-600 animate-pulse'
+                  }`}
+                  style={{ width: `${remainingPct}%` }}
                 />
               </div>
             </div>
-            <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold tracking-tight">
-              3× TIER
+
+            {/* Remaining Percentage Badge */}
+            <span
+              className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                remainingPct > 50
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                  : remainingPct > 20
+                  ? 'bg-orange-500/10 text-orange-300 border-orange-500/30'
+                  : 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
+              }`}
+            >
+              {remainingPct.toFixed(1)}%
             </span>
           </button>
 
-          {/* Quota Popover Details */}
+          {/* Token Burner HUD Details Popover */}
           {showQuotaPopover && (
-            <div className="absolute right-0 top-full mt-2 w-80 bg-[#121624] border border-slate-700/80 rounded-xl shadow-2xl p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <AdinkraGlyph name="dono" size={16} className="text-amber-400" />
-                  <span className="font-semibold text-xs text-slate-100">Daily Token Quota</span>
+            <div className="absolute right-0 top-full mt-2 w-88 bg-[#121624] border border-amber-500/40 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95 duration-100">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                    <Flame size={15} className="text-amber-400 fill-amber-500/30" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-xs text-slate-100">Token Burner HUD</span>
+                    <span className="block text-[9px] text-amber-400/90 font-mono">
+                      3,000,000 Daily Quota (3× AI Studio Limit)
+                    </span>
+                  </div>
                 </div>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
-                  3× Supercharged
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
+                  3× Headroom Active
                 </span>
               </div>
 
-              <div className="py-2.5 space-y-2 text-xs">
-                <div>
-                  <div className="flex justify-between text-[11px] font-mono mb-1">
-                    <span className="text-slate-400">Today's Consumption:</span>
-                    <span className="text-amber-300 font-bold">
-                      {dailyQuota.usedToday.toLocaleString()} / {dailyQuota.dailyLimit.toLocaleString()} tokens
-                    </span>
-                  </div>
-                  <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+              {/* Big Countdown Ticker */}
+              <div className="my-3 p-3.5 bg-[#090b10] border border-slate-800 rounded-xl text-center space-y-1">
+                <div className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">
+                  Remaining Daily Token Headroom
+                </div>
+                <div className="text-2xl font-bold font-mono text-amber-400 tracking-tight flex items-center justify-center gap-1.5">
+                  <span>{remainingTokens.toLocaleString()}</span>
+                  <span className="text-xs text-slate-500 font-normal">/ 3,000,000</span>
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono">
+                  {dailyQuota.usedToday.toLocaleString()} tokens burned today ({burnedPct.toFixed(2)}% consumed)
+                </div>
+
+                {/* Progress bar with 1M threshold mark */}
+                <div className="pt-2 px-1">
+                  <div className="relative w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-slate-700/80">
                     <div
-                      className="h-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-300 rounded-full transition-all"
-                      style={{
-                        width: `${Math.min(100, (dailyQuota.usedToday / dailyQuota.dailyLimit) * 100)}%`,
-                      }}
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        remainingPct > 50
+                          ? 'bg-gradient-to-r from-emerald-400 via-amber-400 to-amber-500'
+                          : remainingPct > 20
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                          : 'bg-gradient-to-r from-rose-500 to-red-600'
+                      }`}
+                      style={{ width: `${remainingPct}%` }}
+                    />
+                    {/* Visual marker at 33.3% where Google AI Studio's 1M limit would end */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-white/70 shadow-sm"
+                      style={{ left: '33.33%' }}
+                      title="Google AI Studio Standard 1,000,000 Limit Marker"
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
-                    <span>{((dailyQuota.usedToday / dailyQuota.dailyLimit) * 100).toFixed(2)}% consumed</span>
-                    <span>{(dailyQuota.dailyLimit - dailyQuota.usedToday).toLocaleString()} tokens remaining</span>
+                  <div className="flex justify-between text-[9px] text-slate-500 mt-1 font-mono">
+                    <span>0</span>
+                    <span className="text-slate-400 font-semibold">1.0M (Standard AI Studio Cap)</span>
+                    <span className="text-amber-400 font-semibold">3.0M (Adinkra 3× Cap)</span>
                   </div>
-                </div>
-
-                {/* Comparison Matrix Table */}
-                <div className="p-2 bg-[#090b10] border border-slate-800/80 rounded-lg space-y-1.5 font-mono text-[10px]">
-                  <div className="text-[10px] text-slate-400 font-sans font-semibold uppercase tracking-wider pb-1 border-b border-slate-800">
-                    Tier Comparison
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Daily Quota:</span>
-                    <div className="space-x-1">
-                      <span className="line-through text-slate-600">1.0M</span>
-                      <span className="text-amber-400 font-bold">3.0M tokens (3×)</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Max Per Turn:</span>
-                    <div className="space-x-1">
-                      <span className="line-through text-slate-600">8,192</span>
-                      <span className="text-amber-400 font-bold">24,576 tokens (3×)</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Rate Limit:</span>
-                    <div className="space-x-1">
-                      <span className="line-through text-slate-600">15 RPM</span>
-                      <span className="text-amber-400 font-bold">45 RPM (3×)</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-[10px] text-slate-400 leading-snug">
-                  Adinkra Studio gives prompt engineers 3× higher headroom for multi-turn evaluations, structured JSON schemas, and large context synthesis.
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
-                <span className="text-[10px] text-slate-500 font-mono">Resets daily at 00:00 UTC</span>
+              {/* Reset Countdown Timer */}
+              <div className="p-2.5 bg-[#141826] border border-slate-800 rounded-lg flex items-center justify-between text-xs mb-3 font-mono">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Clock size={13} className="text-amber-400" />
+                  <span className="text-[11px]">Midnight UTC Reset:</span>
+                </div>
+                <span className="text-amber-300 font-bold text-xs">{timeUntilReset || 'Calculating...'}</span>
+              </div>
+
+              {/* Capacity Comparison Table */}
+              <div className="p-2.5 bg-[#090b10] border border-slate-800 rounded-lg space-y-1.5 font-mono text-[10px] mb-3">
+                <div className="text-[10px] text-slate-400 font-sans font-semibold uppercase tracking-wider pb-1 border-b border-slate-800">
+                  Capacity Comparison
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Daily Quota:</span>
+                  <div className="space-x-1">
+                    <span className="line-through text-slate-600">1,000,000</span>
+                    <span className="text-amber-400 font-bold">3,000,000 tokens (3×)</span>
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Max Per Turn:</span>
+                  <div className="space-x-1">
+                    <span className="line-through text-slate-600">8,192</span>
+                    <span className="text-amber-400 font-bold">24,576 tokens (3×)</span>
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Rate Limit:</span>
+                  <div className="space-x-1">
+                    <span className="line-through text-slate-600">15 RPM</span>
+                    <span className="text-amber-400 font-bold">45 RPM (3×)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Simulation and Reset Actions */}
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                  {onBurnTokens && (
+                    <button
+                      onClick={() => onBurnTokens(5000)}
+                      className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-300 font-mono transition-colors"
+                      title="Simulate burning 5,000 tokens to test countdown"
+                    >
+                      +5k Burn
+                    </button>
+                  )}
+                  {onBurnTokens && (
+                    <button
+                      onClick={() => onBurnTokens(25000)}
+                      className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-[10px] text-slate-300 font-mono transition-colors"
+                      title="Simulate burning 25,000 tokens to test countdown"
+                    >
+                      +25k Burn
+                    </button>
+                  )}
+                </div>
+
                 {onResetDailyQuota && (
                   <button
                     onClick={onResetDailyQuota}
                     className="text-[10px] font-mono text-slate-400 hover:text-amber-300 underline"
                   >
-                    Reset Counter
+                    Reset to 3.0M
                   </button>
                 )}
               </div>
@@ -440,16 +556,16 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">Save Version</span>
         </button>
 
-        {/* Run Prompt CTA */}
+        {/* Run / Send Prompt CTA in Header */}
         <button
           onClick={onRun}
           disabled={isRunning}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold shadow-md transition-all ${
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-md transition-all ${
             isRunning
               ? 'bg-amber-600/60 text-slate-200 cursor-not-allowed animate-pulse'
-              : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/10 active:scale-95'
+              : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 shadow-amber-500/25 active:scale-95 ring-1 ring-amber-400/50'
           }`}
-          title="Run prompt (Ctrl+Enter / Cmd+Enter)"
+          title="Send prompt to Gemini AI (⌘↵ or Ctrl+Enter)"
         >
           {isRunning ? (
             <>
@@ -459,8 +575,8 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <>
               <Play size={13} className="fill-current" />
-              <span>Run</span>
-              <kbd className="hidden sm:inline text-[9px] bg-amber-400/30 text-slate-950 px-1 py-0.2 rounded font-mono">
+              <span>Send Prompt</span>
+              <kbd className="hidden sm:inline text-[9px] bg-slate-950/20 text-slate-950 px-1 py-0.2 rounded font-mono">
                 ⌘↵
               </kbd>
             </>
