@@ -28,6 +28,7 @@ import { CommitModal } from './components/CommitModal';
 import { ShareModal } from './components/ShareModal';
 import { CommentsDrawer } from './components/CommentsDrawer';
 import { AdinkraPhilosophyModal } from './components/AdinkraPhilosophyModal';
+import { GuardrailsCacheModal } from './components/GuardrailsCacheModal';
 
 const DEFAULT_MODELS: ModelInfo[] = [
   {
@@ -149,6 +150,21 @@ export default function App() {
     thinkingLevel: 'LOW',
     enableSearchGrounding: false,
     responseFormat: 'text',
+    cacheConfig: {
+      enableCache: true,
+      enableSemanticCache: true,
+      similarityThreshold: 0.82,
+    },
+    guardrailsConfig: {
+      enableGuardrails: true,
+      blockPromptInjection: true,
+      maskPII: true,
+      enforceTopicScope: false,
+      strictStructuredOutput: true,
+      autoRepairJson: true,
+      verifyHallucinations: true,
+      blockedAction: 'block',
+    },
   });
 
   // Daily Token Quota (3x Google AI Studio's 1,000,000 token limit)
@@ -214,6 +230,7 @@ export default function App() {
   const [showPhilosophyModal, setShowPhilosophyModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showOptimizerModal, setShowOptimizerModal] = useState(false);
+  const [showGuardrailsModal, setShowGuardrailsModal] = useState(false);
   const [showCommentsDrawer, setShowCommentsDrawer] = useState(false);
 
   // Load models & workspace history on mount
@@ -290,64 +307,93 @@ export default function App() {
         }));
       }
 
-      const res = await api.generate(
-        {
-          model,
-          systemInstruction,
-          prompt: finalPrompt,
-          contents: contentsPayload,
-          parameters,
-          stream: true,
-        },
-        (chunkText) => {
-          setOutput(chunkText);
-        }
-      );
-
-      setOutput(res.text);
-
-      // If in chat mode, append model turn to chat conversation history
-      if (promptMode === 'chat' && res.text) {
-        setTurns((prev) => [
-          ...prev,
-          {
-            id: `turn-model-${Date.now()}`,
-            role: 'model',
-            content: res.text,
-          },
-        ]);
-      }
-
-      const estimatedCost = (res.usage.totalTokens / 1_000_000) * 0.15;
-      setMetrics({
-        latencyMs: res.latencyMs,
-        inputTokens: res.usage.inputTokens,
-        outputTokens: res.usage.outputTokens,
-        totalTokens: res.usage.totalTokens,
-        estimatedCost,
-      });
-
-      // Increment daily token usage against the 3,000,000 daily quota
-      setDailyQuota((prev) => {
-        const updated = {
-          ...prev,
-          usedToday: prev.usedToday + res.usage.totalTokens,
-        };
+      const executeWithAutoRetry = async (attempt = 1): Promise<void> => {
         try {
-          localStorage.setItem('adinkra_daily_quota', JSON.stringify(updated));
-        } catch {}
-        return updated;
-      });
+          const res = await api.generate(
+            {
+              model,
+              systemInstruction,
+              prompt: finalPrompt,
+              contents: contentsPayload,
+              parameters,
+              stream: true,
+            },
+            (chunkText) => {
+              setOutput(chunkText);
+            }
+          );
 
-      if (res.groundingMetadata?.groundingChunks) {
-        const sources = res.groundingMetadata.groundingChunks
-          .map((c: any) => c.web)
-          .filter(Boolean);
-        setGroundingSources(sources);
-      }
-    } catch (err: any) {
-      console.error('Run failed:', err);
-      setError(err.message || 'Execution failed. Please check Gemini API key and parameters.');
+          setOutput(res.text);
+
+          // If in chat mode, append model turn to chat conversation history
+          if (promptMode === 'chat' && res.text) {
+            setTurns((prev) => [
+              ...prev,
+              {
+                id: `turn-model-${Date.now()}`,
+                role: 'model',
+                content: res.text,
+              },
+            ]);
+          }
+
+          const estimatedCost = res.cacheHit ? 0 : (res.usage.totalTokens / 1_000_000) * 0.15;
+          setMetrics({
+            latencyMs: res.latencyMs,
+            inputTokens: res.usage.inputTokens,
+            outputTokens: res.usage.outputTokens,
+            totalTokens: res.usage.totalTokens,
+            estimatedCost,
+            cacheHit: res.cacheHit,
+            cacheType: res.cacheType,
+            similarityScore: res.similarityScore,
+            savedLatencyMs: res.savedLatencyMs,
+            savedCost: res.savedCost,
+            guardrailStatus: res.guardrailStatus,
+            guardrailViolations: res.guardrailViolations,
+          });
+
+          // Only increment daily token quota if fresh compute was consumed (cache hits don't consume quota!)
+          if (!res.cacheHit) {
+            setDailyQuota((prev) => {
+              const updated = {
+                ...prev,
+                usedToday: prev.usedToday + res.usage.totalTokens,
+              };
+              try {
+                localStorage.setItem('adinkra_daily_quota', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+          }
+
+          if (res.groundingMetadata?.groundingChunks) {
+            const sources = res.groundingMetadata.groundingChunks
+              .map((c: any) => c.web)
+              .filter(Boolean);
+            setGroundingSources(sources);
+          }
+        } catch (err: any) {
+          const msg = String(err?.message || '');
+          const isTransient =
+            msg.includes('cycling') ||
+            msg.includes('reconnected') ||
+            msg.includes('momentarily') ||
+            msg.includes('demand') ||
+            msg.includes('interrupted') ||
+            msg.includes('Failed to fetch');
+
+          if (isTransient && attempt === 1) {
+            await new Promise((r) => setTimeout(r, 1200));
+            return executeWithAutoRetry(2);
+          }
+
+          console.error('Run failed:', err);
+          setError(err.message || 'Execution failed. Please check Gemini API key and parameters.');
+        }
+      };
+
+      await executeWithAutoRetry(1);
     } finally {
       setIsGenerating(false);
     }
@@ -594,6 +640,7 @@ export default function App() {
         onOpenCommitModal={() => setShowCommitModal(true)}
         onOpenPhilosophyModal={() => setShowPhilosophyModal(true)}
         onOpenShareModal={() => setShowShareModal(true)}
+        onOpenGuardrailsModal={() => setShowGuardrailsModal(true)}
         onExportWorkspace={handleExportWorkspace}
         onRun={handleRun}
         isRunning={isGenerating}
@@ -648,6 +695,7 @@ export default function App() {
                   error={error}
                   onClearOutput={() => setOutput('')}
                   onRetry={() => handleRun()}
+                  onOpenGuardrailsModal={() => setShowGuardrailsModal(true)}
                 />
               </div>
             </div>
@@ -661,6 +709,7 @@ export default function App() {
               setParameters={setParameters}
               onOpenCommentForConfig={() => setShowCommentsDrawer(true)}
               commentCount={comments.filter((c) => c.target === 'config' && !c.resolved).length}
+              onOpenGuardrailsModal={() => setShowGuardrailsModal(true)}
             />
           </div>
         )}
@@ -775,6 +824,13 @@ export default function App() {
         onAddComment={handleAddComment}
         onToggleResolve={handleToggleResolveComment}
         collaborators={collaborators}
+      />
+
+      <GuardrailsCacheModal
+        isOpen={showGuardrailsModal}
+        onClose={() => setShowGuardrailsModal(false)}
+        parameters={parameters}
+        setParameters={setParameters}
       />
 
       {/* Export Workspace Toast Notification */}

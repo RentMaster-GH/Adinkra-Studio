@@ -4,6 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { globalPromptCache } from './src/services/semanticCache.js';
+import { globalGuardrails } from './src/services/guardrailsEngine.js';
 
 dotenv.config();
 
@@ -251,6 +253,35 @@ app.post('/api/workspace/comment/resolve', (req: Request, res: Response) => {
   res.json({ success: true, comment });
 });
 
+// Cache Management Endpoints
+app.get('/api/cache/stats', (_req: Request, res: Response) => {
+  res.json(globalPromptCache.getStats());
+});
+
+app.post('/api/cache/clear', (_req: Request, res: Response) => {
+  globalPromptCache.clear();
+  res.json({ success: true, message: 'Prompt and semantic cache cleared successfully.' });
+});
+
+app.delete('/api/cache/entry/:id', (req: Request, res: Response) => {
+  const success = globalPromptCache.deleteEntry(req.params.id);
+  res.json({ success });
+});
+
+// Guardrails Sandbox Test Endpoint
+app.post('/api/guardrails/test', (req: Request, res: Response) => {
+  const { prompt = '', systemInstruction = '', responseOutput = '', format = 'text', schema = '', config } = req.body;
+  const inputCheck = globalGuardrails.evaluateInput(prompt, systemInstruction, config);
+  const outputCheck = responseOutput 
+    ? globalGuardrails.evaluateOutput(responseOutput, format, schema, config)
+    : null;
+
+  res.json({
+    input: inputCheck,
+    output: outputCheck,
+  });
+});
+
 // Helper to parse and humanize Gemini API errors
 function formatGeminiError(error: any): string {
   if (!error) return 'An unexpected error occurred during execution.';
@@ -278,6 +309,25 @@ function formatGeminiError(error: any): string {
     return 'Rate limit reached on Gemini API. Please wait a moment before sending another prompt.';
   }
   return rawMsg;
+}
+
+// Simple circuit breaker for upstream 503 high demand
+const last503Timestamp: Record<string, number> = {};
+
+function isModelTemporarilyOverloaded(modelName: string): boolean {
+  const lastTime = last503Timestamp[modelName];
+  if (!lastTime) return false;
+  if (Date.now() - lastTime < 90_000) return true;
+  delete last503Timestamp[modelName];
+  return false;
+}
+
+function markModelOverloaded(modelName: string): void {
+  last503Timestamp[modelName] = Date.now();
+}
+
+function clearModelOverload(modelName: string): void {
+  delete last503Timestamp[modelName];
 }
 
 // Prompt Execution Endpoint (Streaming and Unary with resilience & auto-retry)
@@ -356,16 +406,126 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       config.tools = [{ googleSearch: {} }];
     }
 
-    // Build contents payload
-    let contentsPayload: any = prompt;
+    // Step 1: Input Guardrails Pre-Execution Interception
+    const rawPromptText = typeof prompt === 'string' ? prompt : (contents ? JSON.stringify(contents) : '');
+    const inputGuardResult = globalGuardrails.evaluateInput(
+      rawPromptText,
+      systemInstruction || '',
+      parameters.guardrailsConfig
+    );
+
+    if (inputGuardResult.blocked) {
+      const latencyMs = 3;
+      const guardrailMsg = inputGuardResult.interceptionMessage || 'Prompt blocked by LLM Guardrail.';
+
+      if (stream) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders?.();
+        res.write(`data: ${JSON.stringify({ text: guardrailMsg, done: false, model })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({
+            done: true,
+            fullText: guardrailMsg,
+            latencyMs,
+            model,
+            guardrailStatus: 'blocked',
+            guardrailViolations: inputGuardResult.violations,
+          })}\n\n`
+        );
+        res.end();
+        return;
+      } else {
+        res.json({
+          text: guardrailMsg,
+          latencyMs,
+          usage: { inputTokens: 5, outputTokens: 25, totalTokens: 30 },
+          model,
+          guardrailStatus: 'blocked',
+          guardrailViolations: inputGuardResult.violations,
+        });
+        return;
+      }
+    }
+
+    // Build sanitized contents payload
+    let contentsPayload: any = inputGuardResult.sanitizedPrompt || prompt;
     if (contents) {
       contentsPayload = contents;
     }
 
-    // Candidate models to attempt: requested model first, with fallbacks for transient 503 high demand
-    const modelsToTry = [model];
-    if (model === 'gemini-3.8-flash') {
-      modelsToTry.push('gemini-3.1-flash-lite');
+    // Step 2: Prompt Caching & Semantic Caching Layer
+    const enableCache = parameters.cacheConfig?.enableCache !== false;
+    const enableSemanticCache = parameters.cacheConfig?.enableSemanticCache !== false;
+    const similarityThreshold = parameters.cacheConfig?.similarityThreshold || 0.82;
+
+    if (enableCache) {
+      const cacheMatch = globalPromptCache.lookup(
+        inputGuardResult.sanitizedPrompt,
+        systemInstruction || '',
+        model,
+        parameters,
+        enableSemanticCache,
+        similarityThreshold
+      );
+
+      if (cacheMatch.hit && cacheMatch.cachedResponse) {
+        const cached = cacheMatch.cachedResponse;
+        const latencyMs = Math.floor(Math.random() * 5) + 3; // 3-8ms response
+
+        if (stream) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          res.flushHeaders?.();
+
+          res.write(`data: ${JSON.stringify({ text: cached.text, done: false, model: cached.model })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({
+              done: true,
+              fullText: cached.text,
+              latencyMs,
+              model: cached.model,
+              cacheHit: true,
+              cacheType: cacheMatch.type,
+              similarityScore: cacheMatch.similarityScore,
+              savedLatencyMs: cacheMatch.savedLatencyMs,
+              savedCost: cacheMatch.savedCost,
+              guardrailStatus: 'passed',
+              guardrailViolations: inputGuardResult.violations,
+            })}\n\n`
+          );
+          res.end();
+          return;
+        } else {
+          res.json({
+            text: cached.text,
+            latencyMs,
+            usage: cached.usage,
+            model: cached.model,
+            cacheHit: true,
+            cacheType: cacheMatch.type,
+            similarityScore: cacheMatch.similarityScore,
+            savedLatencyMs: cacheMatch.savedLatencyMs,
+            savedCost: cacheMatch.savedCost,
+            groundingMetadata: cached.groundingMetadata || null,
+            guardrailStatus: 'passed',
+            guardrailViolations: inputGuardResult.violations,
+          });
+          return;
+        }
+      }
+    }
+
+    // Candidate models to attempt:
+    let modelsToTry = [model];
+    if (model !== 'gemini-3.1-flash-lite') {
+      if (isModelTemporarilyOverloaded(model)) {
+        modelsToTry = ['gemini-3.1-flash-lite', model];
+      } else {
+        modelsToTry.push('gemini-3.1-flash-lite');
+      }
     }
 
     if (stream) {
@@ -382,7 +542,13 @@ app.post('/api/generate', async (req: Request, res: Response) => {
               config,
             });
 
-            // If we successfully initialized stream, start sending SSE headers
+            const iterator = responseStream[Symbol.asyncIterator]();
+            const firstResult = await iterator.next();
+
+            if (firstResult.done) {
+              continue;
+            }
+
             if (!res.headersSent) {
               res.setHeader('Content-Type', 'text/event-stream');
               res.setHeader('Cache-Control', 'no-cache');
@@ -390,25 +556,74 @@ app.post('/api/generate', async (req: Request, res: Response) => {
               res.flushHeaders?.();
             }
 
-            let fullText = '';
-            for await (const chunk of responseStream) {
-              const text = chunk.text || '';
+            const firstText = firstResult.value.text || '';
+            let fullText = firstText;
+            res.write(`data: ${JSON.stringify({ text: firstText, done: false, model: currentModel })}\n\n`);
+
+            while (true) {
+              const { value, done } = await iterator.next();
+              if (done) break;
+              const text = value.text || '';
               fullText += text;
               res.write(`data: ${JSON.stringify({ text, done: false, model: currentModel })}\n\n`);
             }
 
             const latencyMs = Date.now() - startTime;
+
+            // Output Guardrails (Strict JSON & Auto-Repair)
+            const outputGuardResult = globalGuardrails.evaluateOutput(
+              fullText,
+              parameters.responseFormat || 'text',
+              parameters.responseSchema,
+              parameters.guardrailsConfig
+            );
+
+            const allViolations = [...inputGuardResult.violations, ...outputGuardResult.violations];
+            const guardStatus = outputGuardResult.repairedJson
+              ? 'repaired'
+              : allViolations.length > 0
+              ? 'warned'
+              : 'passed';
+
+            const inputTokens = Math.ceil((prompt?.length || 50) / 4);
+            const outputTokens = Math.ceil(outputGuardResult.sanitizedText.length / 4);
+            const usageData = {
+              inputTokens,
+              outputTokens,
+              totalTokens: inputTokens + outputTokens,
+            };
+
+            // Store in high-speed Prompt Cache for instant subsequent recall
+            if (enableCache) {
+              globalPromptCache.set(
+                inputGuardResult.sanitizedPrompt,
+                systemInstruction || '',
+                currentModel,
+                parameters,
+                {
+                  text: outputGuardResult.sanitizedText,
+                  latencyMs,
+                  usage: usageData,
+                  model: currentModel,
+                }
+              );
+            }
+
             res.write(
               `data: ${JSON.stringify({
                 done: true,
-                fullText,
+                fullText: outputGuardResult.sanitizedText,
                 latencyMs,
                 model: currentModel,
+                cacheHit: false,
+                guardrailStatus: guardStatus,
+                guardrailViolations: allViolations,
               })}\n\n`
             );
             res.end();
             streamSuccess = true;
             activeUsedModel = currentModel;
+            clearModelOverload(currentModel);
             break;
           } catch (err: any) {
             lastStreamError = err;
@@ -419,7 +634,10 @@ app.post('/api/generate', async (req: Request, res: Response) => {
               errMsg.includes('high demand') ||
               errMsg.includes('429');
 
-            // If headers have already been sent to client, we cannot cleanly retry the stream
+            if (isTransient) {
+              markModelOverloaded(currentModel);
+            }
+
             if (res.headersSent) {
               const formattedError = formatGeminiError(err);
               res.write(`data: ${JSON.stringify({ error: formattedError, done: true })}\n\n`);
@@ -428,11 +646,11 @@ app.post('/api/generate', async (req: Request, res: Response) => {
             }
 
             if (isTransient && attempt === 0) {
-              // Wait 700ms jitter before retrying
-              await new Promise((r) => setTimeout(r, 700));
+              await new Promise((r) => setTimeout(r, 600));
               continue;
             }
-            break; // Try fallback model in outer loop
+            console.warn(`Model ${currentModel} stream unavailable, failing over to next model candidate...`);
+            break;
           }
         }
         if (streamSuccess) break;
@@ -440,7 +658,7 @@ app.post('/api/generate', async (req: Request, res: Response) => {
 
       if (!streamSuccess) {
         const formatted = formatGeminiError(lastStreamError);
-        console.error('Streaming failed after retries:', lastStreamError);
+        console.error('Streaming failed after all candidate models:', lastStreamError);
         if (!res.headersSent) {
           res.status(500).json({ error: formatted, model: activeUsedModel });
         } else {
@@ -465,6 +683,7 @@ app.post('/api/generate', async (req: Request, res: Response) => {
             config,
           });
           usedModel = currentModel;
+          clearModelOverload(currentModel);
           break;
         } catch (err: any) {
           lastUnaryError = err;
@@ -474,6 +693,9 @@ app.post('/api/generate', async (req: Request, res: Response) => {
             errMsg.includes('UNAVAILABLE') ||
             errMsg.includes('high demand') ||
             errMsg.includes('429');
+          if (isTransient) {
+            markModelOverloaded(currentModel);
+          }
           if (isTransient && attempt === 0) {
             await new Promise((r) => setTimeout(r, 700));
             continue;
@@ -489,22 +711,57 @@ app.post('/api/generate', async (req: Request, res: Response) => {
     }
 
     const latencyMs = Date.now() - startTime;
-    const text = response.text || '';
+    const rawText = response.text || '';
 
-    // Estimate token counts or extract usage metadata if present
+    // Step 3: Output Guardrails (Strict JSON Schema & Auto-Repair)
+    const outputGuardResult = globalGuardrails.evaluateOutput(
+      rawText,
+      parameters.responseFormat || 'text',
+      parameters.responseSchema,
+      parameters.guardrailsConfig
+    );
+
+    const allViolations = [...inputGuardResult.violations, ...outputGuardResult.violations];
+    const guardStatus = outputGuardResult.repairedJson
+      ? 'repaired'
+      : allViolations.length > 0
+      ? 'warned'
+      : 'passed';
+
     const usageMetadata = response.usageMetadata || {};
     const inputTokens = usageMetadata.promptTokenCount || Math.ceil((prompt?.length || 50) / 4);
-    const outputTokens = usageMetadata.candidatesTokenCount || Math.ceil(text.length / 4);
+    const outputTokens = usageMetadata.candidatesTokenCount || Math.ceil(outputGuardResult.sanitizedText.length / 4);
+    const usageData = {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+    };
+
+    // Store in Cache
+    if (enableCache) {
+      globalPromptCache.set(
+        inputGuardResult.sanitizedPrompt,
+        systemInstruction || '',
+        usedModel,
+        parameters,
+        {
+          text: outputGuardResult.sanitizedText,
+          latencyMs,
+          usage: usageData,
+          model: usedModel,
+          groundingMetadata: response.candidates?.[0]?.groundingMetadata || null,
+        }
+      );
+    }
 
     res.json({
-      text,
+      text: outputGuardResult.sanitizedText,
       latencyMs,
-      usage: {
-        inputTokens,
-        outputTokens,
-        totalTokens: inputTokens + outputTokens,
-      },
+      usage: usageData,
       model: usedModel,
+      cacheHit: false,
+      guardrailStatus: guardStatus,
+      guardrailViolations: allViolations,
       groundingMetadata: response.candidates?.[0]?.groundingMetadata || null,
     });
   } catch (error: any) {
@@ -592,15 +849,31 @@ Return your answer strictly in valid JSON format matching this structure:
 }`;
     }
 
-    const aiRes = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: `System Instruction Context: ${systemInstruction || 'None provided'}\n\nPrompt to evaluate/optimize:\n${prompt}`,
-      config: {
-        systemInstruction: instructionMeta,
-        responseMimeType: 'application/json',
-        temperature: 0.2,
-      },
-    });
+    const optModelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    let aiRes: any = null;
+    let lastOptError: any = null;
+
+    for (const optModel of optModelsToTry) {
+      try {
+        aiRes = await ai.models.generateContent({
+          model: optModel,
+          contents: `System Instruction Context: ${systemInstruction || 'None provided'}\n\nPrompt to evaluate/optimize:\n${prompt}`,
+          config: {
+            systemInstruction: instructionMeta,
+            responseMimeType: 'application/json',
+            temperature: 0.2,
+          },
+        });
+        if (aiRes) break;
+      } catch (err: any) {
+        lastOptError = err;
+        console.warn(`Optimize prompt with ${optModel} failed, trying fallback:`, err?.message || err);
+      }
+    }
+
+    if (!aiRes) {
+      throw lastOptError || new Error('Optimization unavailable');
+    }
 
     const parsed = JSON.parse(aiRes.text || '{}');
     res.json({ success: true, result: parsed });

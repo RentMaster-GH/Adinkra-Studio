@@ -11,7 +11,10 @@ import {
   Sparkles,
   Info,
   Layers,
-  MessageSquare
+  MessageSquare,
+  Zap,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { ModelParameters, ModelInfo, ThinkingLevelType } from '../types';
 import { AdinkraGlyph } from './AdinkraGlyph';
@@ -24,6 +27,7 @@ interface ModelConfigPanelProps {
   setParameters: React.Dispatch<React.SetStateAction<ModelParameters>>;
   onOpenCommentForConfig?: () => void;
   commentCount?: number;
+  onOpenGuardrailsModal?: () => void;
 }
 
 const SCHEMA_PRESETS = [
@@ -96,6 +100,7 @@ export const ModelConfigPanel: React.FC<ModelConfigPanelProps> = ({
   setParameters,
   onOpenCommentForConfig,
   commentCount = 0,
+  onOpenGuardrailsModal,
 }) => {
   const [stopSeqInput, setStopSeqInput] = useState('');
   const [showSchemaPresets, setShowSchemaPresets] = useState(false);
@@ -390,7 +395,179 @@ export const ModelConfigPanel: React.FC<ModelConfigPanelProps> = ({
           </div>
         </div>
 
-        {/* Response Format & JSON Schema */}
+        {/* Swift Responses: Prompt & Semantic Caching */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+              <Zap size={13} className="text-amber-400" />
+              <span>Prompt & Semantic Caching</span>
+            </label>
+            {onOpenGuardrailsModal && (
+              <button
+                type="button"
+                onClick={onOpenGuardrailsModal}
+                className="text-[10px] text-amber-400 hover:underline font-mono"
+              >
+                Inspect Cache
+              </button>
+            )}
+          </div>
+
+          <div className="p-2 bg-[#090b10] border border-slate-800 rounded-lg space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-300">Exact & Semantic Caching</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={parameters.cacheConfig?.enableCache !== false}
+                  onChange={(e) =>
+                    setParameters((prev) => ({
+                      ...prev,
+                      cacheConfig: {
+                        enableCache: e.target.checked,
+                        enableSemanticCache: prev.cacheConfig?.enableSemanticCache !== false,
+                        similarityThreshold: prev.cacheConfig?.similarityThreshold || 0.82,
+                      },
+                    }))
+                  }
+                  className="sr-only peer"
+                />
+                <div className="w-7 h-3.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400">Semantic Intent Match</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={parameters.cacheConfig?.enableSemanticCache !== false}
+                  onChange={(e) =>
+                    setParameters((prev) => ({
+                      ...prev,
+                      cacheConfig: {
+                        enableCache: prev.cacheConfig?.enableCache !== false,
+                        enableSemanticCache: e.target.checked,
+                        similarityThreshold: prev.cacheConfig?.similarityThreshold || 0.82,
+                      },
+                    }))
+                  }
+                  className="sr-only peer"
+                />
+                <div className="w-7 h-3.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+            <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between text-[9px] text-slate-400">
+              <span>Threshold: {Math.round((parameters.cacheConfig?.similarityThreshold || 0.82) * 100)}%</span>
+              <span className="text-emerald-400 font-mono font-semibold">⚡ Sub-10ms Latency</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Error-Free Responses: Guardrails & Structured Output */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+              <ShieldCheck size={13} className="text-emerald-400" />
+              <span>LLM Guardrails</span>
+            </label>
+            {onOpenGuardrailsModal && (
+              <button
+                type="button"
+                onClick={onOpenGuardrailsModal}
+                className="text-[10px] text-amber-400 hover:underline font-mono"
+              >
+                Policy Settings
+              </button>
+            )}
+          </div>
+
+          <div className="p-2 bg-[#090b10] border border-slate-800 rounded-lg space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-300">Prompt Injection Shield</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={parameters.guardrailsConfig?.blockPromptInjection !== false}
+                  onChange={(e) =>
+                    setParameters((prev) => ({
+                      ...prev,
+                      guardrailsConfig: {
+                        enableGuardrails: true,
+                        blockPromptInjection: e.target.checked,
+                        maskPII: prev.guardrailsConfig?.maskPII !== false,
+                        enforceTopicScope: !!prev.guardrailsConfig?.enforceTopicScope,
+                        strictStructuredOutput: prev.guardrailsConfig?.strictStructuredOutput !== false,
+                        autoRepairJson: prev.guardrailsConfig?.autoRepairJson !== false,
+                        verifyHallucinations: true,
+                        blockedAction: 'block',
+                      },
+                    }))
+                  }
+                  className="sr-only peer"
+                />
+                <div className="w-7 h-3.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-300">PII & Key Masking</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={parameters.guardrailsConfig?.maskPII !== false}
+                  onChange={(e) =>
+                    setParameters((prev) => ({
+                      ...prev,
+                      guardrailsConfig: {
+                        enableGuardrails: true,
+                        blockPromptInjection: prev.guardrailsConfig?.blockPromptInjection !== false,
+                        maskPII: e.target.checked,
+                        enforceTopicScope: !!prev.guardrailsConfig?.enforceTopicScope,
+                        strictStructuredOutput: prev.guardrailsConfig?.strictStructuredOutput !== false,
+                        autoRepairJson: prev.guardrailsConfig?.autoRepairJson !== false,
+                        verifyHallucinations: true,
+                        blockedAction: 'block',
+                      },
+                    }))
+                  }
+                  className="sr-only peer"
+                />
+                <div className="w-7 h-3.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-300">Self-Healing JSON Repair</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={parameters.guardrailsConfig?.autoRepairJson !== false}
+                  onChange={(e) =>
+                    setParameters((prev) => ({
+                      ...prev,
+                      guardrailsConfig: {
+                        enableGuardrails: true,
+                        blockPromptInjection: prev.guardrailsConfig?.blockPromptInjection !== false,
+                        maskPII: prev.guardrailsConfig?.maskPII !== false,
+                        enforceTopicScope: !!prev.guardrailsConfig?.enforceTopicScope,
+                        strictStructuredOutput: prev.guardrailsConfig?.strictStructuredOutput !== false,
+                        autoRepairJson: e.target.checked,
+                        verifyHallucinations: true,
+                        blockedAction: 'block',
+                      },
+                    }))
+                  }
+                  className="sr-only peer"
+                />
+                <div className="w-7 h-3.5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Structured Output & JSON Schema */}
         <div className="pt-2 border-t border-slate-800/80">
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">

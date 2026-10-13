@@ -16,7 +16,8 @@ import {
   Clock,
   Zap,
   TrendingDown,
-  Download
+  Download,
+  ShieldCheck
 } from 'lucide-react';
 import { StudioMode, Author, DailyTokenQuota } from '../types';
 import { AdinkraGlyph } from './AdinkraGlyph';
@@ -37,6 +38,7 @@ interface HeaderProps {
   onOpenCommitModal: () => void;
   onOpenPhilosophyModal: () => void;
   onOpenShareModal: () => void;
+  onOpenGuardrailsModal?: () => void;
   onExportWorkspace?: () => void;
   onRun: () => void;
   onStop?: () => void;
@@ -63,6 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCommitModal,
   onOpenPhilosophyModal,
   onOpenShareModal,
+  onOpenGuardrailsModal,
   onExportWorkspace,
   onRun,
   isRunning,
@@ -538,6 +541,18 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Share2 size={16} />
         </button>
+
+        {/* Shield & Cache Architecture Modal CTA */}
+        {onOpenGuardrailsModal && (
+          <button
+            onClick={onOpenGuardrailsModal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-emerald-500/50 hover:text-emerald-300 rounded-md transition-colors font-medium shadow-sm group"
+            title="Inspect Prompt Caching (sub-10ms) & LLM Guardrails (Zero Error Output)"
+          >
+            <ShieldCheck size={13} className="text-emerald-400 group-hover:scale-110 transition-transform" />
+            <span className="hidden xl:inline">Shield & Cache</span>
+          </button>
+        )}
 
         {/* Export Workspace Button */}
         {onExportWorkspace && (

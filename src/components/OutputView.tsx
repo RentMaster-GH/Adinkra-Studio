@@ -10,7 +10,15 @@ import {
   RotateCcw,
   Sparkles,
   Search,
-  Code
+  Code,
+  Zap,
+  ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  Table
 } from 'lucide-react';
 import { ExecutionMetrics } from '../types';
 import { AdinkraGlyph } from './AdinkraGlyph';
@@ -23,6 +31,7 @@ interface OutputViewProps {
   onClearOutput?: () => void;
   error?: string | null;
   onRetry?: () => void;
+  onOpenGuardrailsModal?: () => void;
 }
 
 export const OutputView: React.FC<OutputViewProps> = ({
@@ -33,9 +42,11 @@ export const OutputView: React.FC<OutputViewProps> = ({
   onClearOutput,
   error,
   onRetry,
+  onOpenGuardrailsModal,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [viewFormat, setViewFormat] = useState<'formatted' | 'raw'>('formatted');
+  const [viewFormat, setViewFormat] = useState<'formatted' | 'cards' | 'raw'>('formatted');
+  const [showGuardrailDetails, setShowGuardrailDetails] = useState(false);
 
   const handleCopy = () => {
     if (!output) return;
@@ -76,8 +87,10 @@ export const OutputView: React.FC<OutputViewProps> = ({
           {metrics && !isGenerating && (
             <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
               <span className="flex items-center gap-1 text-slate-300">
-                <Clock size={11} className="text-amber-400" />
-                <span>{metrics.latencyMs}ms</span>
+                <Clock size={11} className={metrics.cacheHit ? 'text-emerald-400' : 'text-amber-400'} />
+                <span className={metrics.cacheHit ? 'text-emerald-300 font-bold' : ''}>
+                  {metrics.latencyMs}ms
+                </span>
               </span>
               <span className="text-slate-600">·</span>
               <span className="text-slate-200">
@@ -96,12 +109,32 @@ export const OutputView: React.FC<OutputViewProps> = ({
           {output && (
             <div className="flex items-center gap-1">
               {isJson && (
-                <button
-                  onClick={() => setViewFormat(viewFormat === 'formatted' ? 'raw' : 'formatted')}
-                  className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded font-mono"
-                >
-                  {viewFormat === 'formatted' ? 'Pretty JSON' : 'Raw'}
-                </button>
+                <div className="flex p-0.5 bg-slate-900 border border-slate-800 rounded font-mono text-[10px]">
+                  <button
+                    onClick={() => setViewFormat('formatted')}
+                    className={`px-1.5 py-0.5 rounded transition-colors ${
+                      viewFormat === 'formatted' ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-slate-400'
+                    }`}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    onClick={() => setViewFormat('cards')}
+                    className={`px-1.5 py-0.5 rounded transition-colors ${
+                      viewFormat === 'cards' ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-slate-400'
+                    }`}
+                  >
+                    Cards
+                  </button>
+                  <button
+                    onClick={() => setViewFormat('raw')}
+                    className={`px-1.5 py-0.5 rounded transition-colors ${
+                      viewFormat === 'raw' ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-slate-400'
+                    }`}
+                  >
+                    Raw
+                  </button>
+                </div>
               )}
               <button
                 onClick={handleCopy}
@@ -114,6 +147,98 @@ export const OutputView: React.FC<OutputViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Capability HUD Bar (Cache Hit & Guardrails Status) */}
+      {metrics && !isGenerating && (metrics.cacheHit || metrics.guardrailStatus) && (
+        <div className="px-4 py-2 border-b border-slate-800/80 bg-[#0c101b] flex flex-wrap items-center justify-between gap-2 text-xs">
+          {/* Cache Status Badge */}
+          <div className="flex items-center gap-2">
+            {metrics.cacheHit ? (
+              <div 
+                onClick={onOpenGuardrailsModal}
+                className="cursor-pointer flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 font-mono text-[11px] shadow-sm hover:bg-emerald-900/60 transition-colors"
+                title="Served from high-speed cache layer without LLM round trip"
+              >
+                <Zap size={12} className="text-emerald-400 fill-emerald-400 animate-pulse" />
+                <span className="font-bold">
+                  ⚡ {metrics.cacheType === 'semantic' ? 'Semantic' : 'Exact'} Cache Hit: {metrics.latencyMs}ms
+                </span>
+                <span className="text-emerald-400/80 text-[10px]">
+                  (Saved ~{metrics.savedLatencyMs || 1200}ms · 100% tokens)
+                </span>
+              </div>
+            ) : (
+              <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+                <span>Inference: Fresh Compute</span>
+              </span>
+            )}
+          </div>
+
+          {/* Guardrails Status Badge */}
+          <div className="flex items-center gap-2">
+            {metrics.guardrailStatus === 'blocked' ? (
+              <button
+                onClick={() => setShowGuardrailDetails(!showGuardrailDetails)}
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/80 border border-rose-600/70 text-rose-200 font-mono text-[11px] font-bold"
+              >
+                <ShieldAlert size={12} className="text-rose-400" />
+                <span>🛡️ Intercepted by Guardrails</span>
+                {showGuardrailDetails ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            ) : metrics.guardrailStatus === 'repaired' ? (
+              <button
+                onClick={() => setShowGuardrailDetails(!showGuardrailDetails)}
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/60 border border-amber-600/60 text-amber-300 font-mono text-[11px]"
+              >
+                <ShieldCheck size={12} className="text-amber-400" />
+                <span>🛡️ Self-Healing JSON Auto-Repaired</span>
+                {showGuardrailDetails ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowGuardrailDetails(!showGuardrailDetails)}
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:text-white font-mono text-[11px] transition-colors"
+              >
+                <ShieldCheck size={12} className="text-emerald-400" />
+                <span>🛡️ Guardrails: Passed</span>
+                {showGuardrailDetails ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            )}
+
+            {onOpenGuardrailsModal && (
+              <button
+                onClick={onOpenGuardrailsModal}
+                className="text-[10px] text-amber-400 hover:underline font-mono"
+              >
+                Manage Policy
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Expandable Guardrail Violations / Actions Log */}
+      {showGuardrailDetails && metrics?.guardrailViolations && metrics.guardrailViolations.length > 0 && (
+        <div className="p-3 bg-[#111422] border-b border-slate-800 text-xs font-mono space-y-1.5 text-slate-300">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+            Guardrail Safety Interventions ({metrics.guardrailViolations.length})
+          </div>
+          <div className="space-y-1">
+            {metrics.guardrailViolations.map((v, i) => (
+              <div
+                key={i}
+                className="p-1.5 bg-[#090b10] border border-slate-800 rounded flex items-center justify-between text-[11px]"
+              >
+                <span className="text-amber-300 font-semibold">[{v.rule}]</span>
+                <span className="text-slate-300 truncate max-w-sm">{v.message}</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                  {v.actionTaken}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Output Content */}
       <div className="flex-1 overflow-y-auto p-4 font-sans text-xs min-h-0">
@@ -149,7 +274,7 @@ export const OutputView: React.FC<OutputViewProps> = ({
             </div>
             <p className="text-xs font-medium text-slate-400">Ready for Execution</p>
             <p className="text-[11px] text-slate-400 max-w-xs mt-1 leading-relaxed">
-              Click <kbd className="px-1 py-0.5 bg-slate-800 rounded text-amber-300 font-mono">Run</kbd> or press <kbd className="px-1 py-0.5 bg-slate-800 rounded text-amber-300 font-mono">⌘+Enter</kbd> to execute your prompt against Gemini with your active configuration.
+              Click <kbd className="px-1 py-0.5 bg-slate-800 rounded text-amber-300 font-mono">Run</kbd> or press <kbd className="px-1 py-0.5 bg-slate-800 rounded text-amber-300 font-mono">⌘+Enter</kbd> to execute your prompt against Gemini with active Semantic Caching & NeMo Guardrails.
             </p>
           </div>
         ) : (
@@ -159,6 +284,43 @@ export const OutputView: React.FC<OutputViewProps> = ({
               <pre className="p-3 bg-[#0e111a] border border-slate-800/80 rounded-lg text-emerald-300/90 font-mono text-[11px] overflow-x-auto leading-relaxed shadow-inner">
                 {JSON.stringify(parsedJson, null, 2)}
               </pre>
+            ) : isJson && viewFormat === 'cards' && parsedJson && typeof parsedJson === 'object' ? (
+              <div className="space-y-3">
+                <div className="text-[11px] font-mono text-slate-400 flex items-center gap-1.5 pb-2 border-b border-slate-800">
+                  <FileCheck2 size={13} className="text-emerald-400" />
+                  <span>Structured Output Entity Cards (Parsed without Error)</span>
+                </div>
+                {Array.isArray(parsedJson) ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {parsedJson.map((item, idx) => (
+                      <div key={idx} className="p-3 bg-[#0e111a] border border-slate-800 rounded-lg space-y-1">
+                        <span className="text-[10px] font-mono text-amber-400 font-bold">Item #{idx + 1}</span>
+                        {typeof item === 'object' && item !== null ? (
+                          Object.entries(item).map(([k, v]) => (
+                            <div key={k} className="text-[11px]">
+                              <span className="text-slate-400 font-mono">{k}: </span>
+                              <span className="text-slate-200">{String(v)}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-slate-200">{String(item)}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {Object.entries(parsedJson).map(([k, v]) => (
+                      <div key={k} className="p-3 bg-[#0e111a] border border-slate-800 rounded-lg space-y-1">
+                        <span className="text-[10px] font-mono text-amber-400 font-bold uppercase tracking-wider">{k}</span>
+                        <div className="text-slate-200 text-xs whitespace-pre-wrap">
+                          {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="text-slate-200 font-sans leading-relaxed whitespace-pre-wrap selection:bg-amber-500/30">
                 {output}

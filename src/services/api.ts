@@ -1,4 +1,13 @@
-import { VersionSnapshot, WorkspaceComment, ModelInfo, TestCase } from '../types';
+import { 
+  VersionSnapshot, 
+  WorkspaceComment, 
+  ModelInfo, 
+  TestCase,
+  CacheConfig,
+  GuardrailsConfig,
+  GuardrailViolation,
+  CacheStats
+} from '../types';
 
 export interface GenerateRequestPayload {
   model: string;
@@ -15,6 +24,8 @@ export interface GenerateRequestPayload {
     enableSearchGrounding: boolean;
     responseFormat: 'text' | 'json';
     responseSchema?: string;
+    cacheConfig?: CacheConfig;
+    guardrailsConfig?: GuardrailsConfig;
   };
   stream?: boolean;
 }
@@ -29,6 +40,13 @@ export interface GenerateResponseData {
   };
   model: string;
   groundingMetadata?: any;
+  cacheHit?: boolean;
+  cacheType?: 'exact' | 'semantic' | 'none';
+  similarityScore?: number;
+  savedLatencyMs?: number;
+  savedCost?: number;
+  guardrailStatus?: 'passed' | 'warned' | 'blocked' | 'repaired';
+  guardrailViolations?: GuardrailViolation[];
 }
 
 function sanitizeErrorMessage(rawText: string, status?: number): string {
@@ -55,7 +73,7 @@ function sanitizeErrorMessage(rawText: string, status?: number): string {
     rawText.toLowerCase().includes('high demand') ||
     rawText.toLowerCase().includes('unavailable')
   ) {
-    return 'The Gemini model upstream is experiencing temporary high demand. Click "Retry Prompt" to reconnect automatically.';
+    return 'The Gemini model is experiencing a momentary demand spike. The studio will automatically route your request to a high-throughput fallback or click "Retry Prompt".';
   }
 
   return rawText;
@@ -64,28 +82,38 @@ function sanitizeErrorMessage(rawText: string, status?: number): string {
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  maxAttempts = 3
+  maxAttempts = 5
 ): Promise<Response> {
+  const delays = [800, 1500, 2500, 3500, 4500];
   let attempt = 0;
   while (attempt < maxAttempts) {
     attempt++;
     try {
       const response = await fetch(url, options);
-      // Statuses that indicate container starting or transient proxy errors (e.g. 404 from ingress before container binds)
-      const isTransientProxy =
+      // Statuses that indicate container starting or transient proxy errors (e.g. 404 from GFE ingress before container binds)
+      const isTransientStatus =
         response.status === 404 ||
         response.status === 502 ||
         response.status === 503 ||
         response.status === 504;
 
-      if (isTransientProxy && attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 700 * attempt));
-        continue;
+      if (isTransientStatus && attempt < maxAttempts) {
+        const textPreview = await response.clone().text().catch(() => '');
+        const isGFEError =
+          textPreview.includes('NOT_FOUND cpt1::') ||
+          textPreview.includes('cpt1::') ||
+          textPreview.toLowerCase().includes('the page could not be found') ||
+          response.status >= 500;
+
+        if (isGFEError || response.status >= 500) {
+          await new Promise((r) => setTimeout(r, delays[attempt - 1] || 1500));
+          continue;
+        }
       }
       return response;
     } catch (networkErr: any) {
       if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 700 * attempt));
+        await new Promise((r) => setTimeout(r, delays[attempt - 1] || 1500));
         continue;
       }
       throw networkErr;
@@ -193,6 +221,14 @@ export const api = {
       let fullText = '';
       let streamError: string | null = null;
       let usedModel = payload.model;
+      let streamLatencyMs = 0;
+      let streamCacheHit = false;
+      let streamCacheType: 'exact' | 'semantic' | 'none' = 'none';
+      let streamSimilarityScore = 0;
+      let streamSavedLatencyMs = 0;
+      let streamSavedCost = 0;
+      let streamGuardrailStatus: 'passed' | 'warned' | 'blocked' | 'repaired' = 'passed';
+      let streamGuardrailViolations: GuardrailViolation[] = [];
 
       if (!reader) throw new Error('Response body stream is not available');
 
@@ -222,6 +258,14 @@ export const api = {
               }
               if (data.done) {
                 fullText = data.fullText || fullText;
+                if (typeof data.latencyMs === 'number') streamLatencyMs = data.latencyMs;
+                if (data.cacheHit) streamCacheHit = true;
+                if (data.cacheType) streamCacheType = data.cacheType;
+                if (typeof data.similarityScore === 'number') streamSimilarityScore = data.similarityScore;
+                if (typeof data.savedLatencyMs === 'number') streamSavedLatencyMs = data.savedLatencyMs;
+                if (typeof data.savedCost === 'number') streamSavedCost = data.savedCost;
+                if (data.guardrailStatus) streamGuardrailStatus = data.guardrailStatus;
+                if (Array.isArray(data.guardrailViolations)) streamGuardrailViolations = data.guardrailViolations;
               }
             } catch {
               // ignore parse errors on partial stream lines
@@ -234,7 +278,7 @@ export const api = {
         throw new Error(sanitizeErrorMessage(streamError));
       }
 
-      const latencyMs = Date.now() - startTime;
+      const latencyMs = streamLatencyMs || (Date.now() - startTime);
       const inputTokens = Math.ceil((payload.prompt?.length || 50) / 4);
       const outputTokens = Math.ceil(fullText.length / 4);
 
@@ -247,6 +291,13 @@ export const api = {
           totalTokens: inputTokens + outputTokens,
         },
         model: usedModel,
+        cacheHit: streamCacheHit,
+        cacheType: streamCacheType,
+        similarityScore: streamSimilarityScore,
+        savedLatencyMs: streamSavedLatencyMs,
+        savedCost: streamSavedCost,
+        guardrailStatus: streamGuardrailStatus,
+        guardrailViolations: streamGuardrailViolations,
       };
     } else {
       const res = await fetchWithRetry('/api/generate', {
@@ -287,5 +338,40 @@ export const api = {
     }
     const data = await res.json();
     return data.result;
+  },
+
+  async getCacheStats(): Promise<CacheStats> {
+    const res = await fetch('/api/cache/stats');
+    if (!res.ok) throw new Error('Failed to fetch cache stats');
+    return res.json();
+  },
+
+  async clearCache(): Promise<void> {
+    const res = await fetch('/api/cache/clear', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to clear cache');
+  },
+
+  async deleteCacheEntry(id: string): Promise<boolean> {
+    const res = await fetch(`/api/cache/entry/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.success;
+  },
+
+  async testGuardrails(payload: {
+    prompt?: string;
+    systemInstruction?: string;
+    responseOutput?: string;
+    format?: 'text' | 'json';
+    schema?: string;
+    config?: Partial<GuardrailsConfig>;
+  }): Promise<any> {
+    const res = await fetch('/api/guardrails/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Failed to test guardrails');
+    return res.json();
   },
 };

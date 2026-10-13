@@ -14,6 +14,32 @@ export interface ModelInfo {
   requiresPaidKey?: boolean;
 }
 
+export interface CacheConfig {
+  enableCache: boolean;
+  enableSemanticCache: boolean;
+  similarityThreshold: number; // 0.70 to 0.99
+}
+
+export interface GuardrailViolation {
+  rule: string;
+  type: 'input' | 'output';
+  severity: 'high' | 'medium' | 'info';
+  message: string;
+  actionTaken: string;
+}
+
+export interface GuardrailsConfig {
+  enableGuardrails: boolean;
+  blockPromptInjection: boolean;
+  maskPII: boolean;
+  enforceTopicScope: boolean;
+  topicScopeDescription?: string;
+  strictStructuredOutput: boolean;
+  autoRepairJson: boolean;
+  verifyHallucinations: boolean;
+  blockedAction: 'block' | 'sanitize' | 'warn';
+}
+
 export interface ModelParameters {
   temperature: number;
   topP: number;
@@ -24,6 +50,8 @@ export interface ModelParameters {
   enableSearchGrounding: boolean;
   responseFormat: 'text' | 'json';
   responseSchema?: string;
+  cacheConfig?: CacheConfig;
+  guardrailsConfig?: GuardrailsConfig;
 }
 
 export interface ChatTurn {
@@ -95,6 +123,38 @@ export interface ExecutionMetrics {
   outputTokens: number;
   totalTokens: number;
   estimatedCost: number;
+  cacheHit?: boolean;
+  cacheType?: 'exact' | 'semantic' | 'none';
+  similarityScore?: number;
+  savedLatencyMs?: number;
+  savedCost?: number;
+  guardrailStatus?: 'passed' | 'warned' | 'blocked' | 'repaired';
+  guardrailViolations?: GuardrailViolation[];
+  originalPromptMasked?: boolean;
+}
+
+export interface CacheEntry {
+  id: string;
+  promptSnippet: string;
+  systemInstructionSnippet?: string;
+  model: string;
+  hits: number;
+  createdAt: string;
+  lastAccessed: string;
+  latencyMs: number;
+  totalTokens: number;
+  cacheType: 'exact' | 'semantic';
+  responseSnippet: string;
+}
+
+export interface CacheStats {
+  totalEntries: number;
+  hits: number;
+  misses: number;
+  hitRate: number;
+  totalLatencySavedMs: number;
+  totalCostSaved: number;
+  entries: CacheEntry[];
 }
 
 export interface DailyTokenQuota {
