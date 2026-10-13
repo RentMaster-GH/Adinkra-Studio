@@ -6,7 +6,10 @@ import {
   CacheConfig,
   GuardrailsConfig,
   GuardrailViolation,
-  CacheStats
+  CacheStats,
+  MetaCapability,
+  MetaAmendment,
+  MetaAuthSession
 } from '../types';
 
 export interface GenerateRequestPayload {
@@ -373,5 +376,83 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to test guardrails');
     return res.json();
+  },
+
+  async authMeta(uid: string): Promise<MetaAuthSession> {
+    const res = await fetch('/api/meta/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Authentication failed');
+    return data.session;
+  },
+
+  async getMetaCapabilities(): Promise<{
+    capabilities: MetaCapability[];
+    amendments: MetaAmendment[];
+    authorizedProfiles: any[];
+  }> {
+    const res = await fetch('/api/meta/capabilities');
+    if (!res.ok) throw new Error('Failed to fetch capabilities');
+    return res.json();
+  },
+
+  async executeMetaCapability(id: string, inputs: any = {}): Promise<{
+    success: boolean;
+    result?: any;
+    stdout: string[];
+    latencyMs: number;
+    error?: string;
+  }> {
+    const res = await fetch('/api/meta/capabilities/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, inputs }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Execution failed');
+    }
+    return res.json();
+  },
+
+  async saveMetaCapability(capability: MetaCapability, uid: string): Promise<MetaCapability> {
+    const res = await fetch('/api/meta/capabilities/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ capability, uid }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to save capability');
+    return data.capability;
+  },
+
+  async deleteMetaCapability(id: string, uid: string): Promise<boolean> {
+    const res = await fetch(`/api/meta/capabilities/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid }),
+    });
+    const data = await res.json();
+    return data.success;
+  },
+
+  async amendProgramming(command: string, uid: string): Promise<{
+    success: boolean;
+    capability: MetaCapability;
+    amendment: MetaAmendment;
+    dryRun: any;
+    message: string;
+  }> {
+    const res = await fetch('/api/meta/amend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command, uid }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to amend studio programming');
+    return data;
   },
 };

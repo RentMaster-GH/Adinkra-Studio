@@ -6,6 +6,8 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { globalPromptCache } from './src/services/semanticCache.js';
 import { globalGuardrails } from './src/services/guardrailsEngine.js';
+import { globalMetaEngine } from './src/services/metaEngine.js';
+import type { MetaCapability } from './src/types/index.js';
 
 dotenv.config();
 
@@ -280,6 +282,227 @@ app.post('/api/guardrails/test', (req: Request, res: Response) => {
     input: inputCheck,
     output: outputCheck,
   });
+});
+
+// ==========================================
+// Meta-Programming & Self-Amending Engine API
+// ==========================================
+
+// Authenticate Developer / Manager Unique Identifier
+app.post('/api/meta/auth', (req: Request, res: Response) => {
+  const { uid } = req.body;
+  if (!uid) {
+    res.status(400).json({ error: 'Unique Identifier (UID) is required.' });
+    return;
+  }
+  const session = globalMetaEngine.authenticateUID(uid);
+  if (!session.isAuthenticated) {
+    res.status(403).json({
+      error: 'Invalid Unique Identifier. Only authorized developers or managers can amend Adinkra Studio programming.',
+      session,
+    });
+    return;
+  }
+  res.json({ success: true, session });
+});
+
+// List all installed capabilities & amendments
+app.get('/api/meta/capabilities', (_req: Request, res: Response) => {
+  res.json({
+    capabilities: globalMetaEngine.getCapabilities(),
+    amendments: globalMetaEngine.getAmendments(),
+    authorizedProfiles: globalMetaEngine.getAuthorizedCredentials(),
+  });
+});
+
+// Execute digital activity or capability in isolated runtime
+app.post('/api/meta/capabilities/execute', (req: Request, res: Response) => {
+  const { id, inputs } = req.body;
+  if (!id) {
+    res.status(400).json({ error: 'Capability ID is required.' });
+    return;
+  }
+  const execution = globalMetaEngine.executeCapability(id, inputs || {});
+  res.json(execution);
+});
+
+// Save or directly edit a capability
+app.post('/api/meta/capabilities/save', (req: Request, res: Response) => {
+  const { capability, uid } = req.body;
+  const auth = globalMetaEngine.authenticateUID(uid);
+  if (!auth.isAuthenticated) {
+    res.status(403).json({ error: 'Unauthorized: Valid Developer/Manager UID required.' });
+    return;
+  }
+  if (!capability || !capability.id || !capability.name || !capability.code) {
+    res.status(400).json({ error: 'Incomplete capability payload.' });
+    return;
+  }
+
+  const saved = globalMetaEngine.saveCapability({
+    ...capability,
+    authorUID: auth.uid,
+    authorName: auth.name,
+    version: (capability.version || 1) + 1,
+  });
+
+  globalMetaEngine.addAmendment({
+    command: `Direct update of capability "${saved.name}"`,
+    summary: `Code updated by ${auth.name} (${auth.role})`,
+    authorUID: auth.uid,
+    authorName: auth.name,
+    capabilityId: saved.id,
+    status: 'applied',
+  });
+
+  res.json({ success: true, capability: saved });
+});
+
+// Delete capability
+app.delete('/api/meta/capabilities/:id', (req: Request, res: Response) => {
+  const { uid } = req.body;
+  const auth = globalMetaEngine.authenticateUID(uid);
+  if (!auth.isAuthenticated) {
+    res.status(403).json({ error: 'Unauthorized: Valid Developer/Manager UID required.' });
+    return;
+  }
+  const deleted = globalMetaEngine.deleteCapability(req.params.id);
+  res.json({ success: deleted });
+});
+
+// Self-Amend Studio Programming at the command of Developer/Manager
+app.post('/api/meta/amend', async (req: Request, res: Response) => {
+  try {
+    const { command, uid } = req.body;
+    if (!command || !command.trim()) {
+      res.status(400).json({ error: 'Self-amendment command is required.' });
+      return;
+    }
+
+    const auth = globalMetaEngine.authenticateUID(uid);
+    if (!auth.isAuthenticated) {
+      res.status(403).json({
+        error: 'Security Barrier: Only the developer or manager with a verified Unique Identifier (UID) can command Adinkra Studio to amend its own programming.',
+      });
+      return;
+    }
+
+    const systemPrompt = `You are the Adinkra Studio Autonomous Meta-Programming Engine.
+You have been commanded by authorized manager/developer ${auth.name} (UID: ${auth.uid}) to improve Adinkra Studio's programming and add a new self-contained digital activity or capability.
+Instruction from developer: "${command}".
+
+Write a robust, executable JavaScript capability for Adinkra Studio.
+Rules:
+1. Define a top-level function "function execute(inputs) { ... return result; }".
+2. It should safely process "inputs" and return an informative JavaScript object.
+3. Keep it robust, elegant, and self-contained.
+4. Output strictly valid JSON matching this schema:
+{
+  "name": "Short descriptive title",
+  "description": "What this capability accomplishes",
+  "category": "tool" | "workflow" | "transformation" | "integration" | "evaluator",
+  "code": "function execute(inputs) { ... }",
+  "outputFormat": "json",
+  "defaultInputs": { "key": "sample value" },
+  "summaryOfAmendment": "Concise summary of how studio programming was improved"
+}`;
+
+    let aiRes: any = null;
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    for (const m of modelsToTry) {
+      try {
+        aiRes = await ai.models.generateContent({
+          model: m,
+          contents: `Synthesize capability from command: "${command}"`,
+          config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: 'application/json',
+            temperature: 0.3,
+          },
+        });
+        if (aiRes) break;
+      } catch (err: any) {
+        console.warn(`Meta amendment model ${m} failed, trying next:`, err?.message || err);
+      }
+    }
+
+    let parsedResult: any = null;
+    if (aiRes && aiRes.text) {
+      try {
+        parsedResult = JSON.parse(aiRes.text);
+      } catch {}
+    }
+
+    // Fallback synthesis if offline or upstream unavailable
+    if (!parsedResult || !parsedResult.code) {
+      const slug = command.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24);
+      parsedResult = {
+        name: `Custom Activity: ${command.slice(0, 40)}`,
+        description: `Autonomous capability synthesized for developer command: "${command}"`,
+        category: 'tool',
+        code: `
+function execute(inputs) {
+  const payload = inputs || {};
+  return {
+    success: true,
+    commandExecuted: ${JSON.stringify(command)},
+    inputsReceived: payload,
+    timestamp: new Date().toISOString(),
+    status: "Active in Adinkra Studio Registry",
+    executionEnvironment: "Adinkra Studio Autonomous Runtime"
+  };
+}
+        `.trim(),
+        outputFormat: 'json',
+        defaultInputs: { testParam: 'Sample input data' },
+        summaryOfAmendment: `Synthesized digital capability for "${command}"`,
+      };
+    }
+
+    // Register capability
+    const capId = `cap-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const newCap: MetaCapability = {
+      id: capId,
+      name: parsedResult.name,
+      description: parsedResult.description,
+      category: parsedResult.category || 'tool',
+      code: parsedResult.code,
+      authorUID: auth.uid,
+      authorName: auth.name,
+      createdAt: new Date().toISOString(),
+      executionCount: 0,
+      isActive: true,
+      version: 1,
+      outputFormat: parsedResult.outputFormat || 'json',
+      defaultInputs: parsedResult.defaultInputs || {},
+    };
+
+    globalMetaEngine.saveCapability(newCap);
+
+    // Verify test run in sandbox
+    const dryRun = globalMetaEngine.executeCapability(capId, newCap.defaultInputs);
+
+    // Record amendment lineage
+    const amendment = globalMetaEngine.addAmendment({
+      command,
+      summary: parsedResult.summaryOfAmendment || `Added capability "${newCap.name}"`,
+      authorUID: auth.uid,
+      authorName: auth.name,
+      capabilityId: capId,
+      status: 'applied',
+    });
+
+    res.json({
+      success: true,
+      capability: newCap,
+      amendment,
+      dryRun,
+      message: `Adinkra Studio programming successfully amended by command of ${auth.name} (${auth.role}).`,
+    });
+  } catch (error: any) {
+    console.error('Self-amend error:', error);
+    res.status(500).json({ error: error.message || 'Failed to amend programming' });
+  }
 });
 
 // Helper to parse and humanize Gemini API errors

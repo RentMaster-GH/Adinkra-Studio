@@ -39,6 +39,7 @@ interface HeaderProps {
   onOpenPhilosophyModal: () => void;
   onOpenShareModal: () => void;
   onOpenGuardrailsModal?: () => void;
+  onOpenSelfAmendingModal?: () => void;
   onExportWorkspace?: () => void;
   onRun: () => void;
   onStop?: () => void;
@@ -66,6 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPhilosophyModal,
   onOpenShareModal,
   onOpenGuardrailsModal,
+  onOpenSelfAmendingModal,
   onExportWorkspace,
   onRun,
   isRunning,
@@ -551,6 +553,19 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <ShieldCheck size={13} className="text-emerald-400 group-hover:scale-110 transition-transform" />
             <span className="hidden xl:inline">Shield & Cache</span>
+          </button>
+        )}
+
+        {/* Self-Amending Meta-Programming Engine CTA (Aya) */}
+        {onOpenSelfAmendingModal && (
+          <button
+            onClick={onOpenSelfAmendingModal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 hover:border-amber-400 rounded-md transition-colors font-medium shadow-sm group"
+            title="Aya Meta-Programming: Amend Adinkra Studio programming at developer command via Unique Identifier (UID)"
+          >
+            <AdinkraGlyph name="aya" size={13} className="text-amber-400 group-hover:scale-110 transition-transform" />
+            <span className="hidden xl:inline">Self-Amend Engine</span>
+            <span className="xl:hidden hidden sm:inline">Self-Amend</span>
           </button>
         )}
 

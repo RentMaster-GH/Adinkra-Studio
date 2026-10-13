@@ -164,3 +164,41 @@ export interface DailyTokenQuota {
   multiplier: number; // 3x
   maxPerTurnLimit: number; // 24,576 (3x 8,192)
 }
+
+export interface MetaCapability {
+  id: string;
+  name: string;
+  description: string;
+  category: 'tool' | 'workflow' | 'transformation' | 'integration' | 'evaluator';
+  code: string;
+  authorUID: string;
+  authorName: string;
+  createdAt: string;
+  lastExecuted?: string;
+  executionCount: number;
+  isActive: boolean;
+  version: number;
+  outputFormat: 'json' | 'text' | 'object';
+  defaultInputs?: Record<string, any>;
+}
+
+export interface MetaAmendment {
+  id: string;
+  command: string;
+  summary: string;
+  authorUID: string;
+  authorName: string;
+  timestamp: string;
+  capabilityId?: string;
+  status: 'applied' | 'staged' | 'reverted';
+  diff?: string;
+}
+
+export interface MetaAuthSession {
+  isAuthenticated: boolean;
+  uid: string;
+  role: 'manager' | 'developer';
+  name: string;
+  email: string;
+  token: string;
+}

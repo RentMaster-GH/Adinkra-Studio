@@ -8,7 +8,8 @@ export type AdinkraSymbolName =
   | 'dono' 
   | 'dame-dame' 
   | 'sepow'
-  | 'dwennimmen';
+  | 'dwennimmen'
+  | 'aya';
 
 interface AdinkraGlyphProps {
   name: AdinkraSymbolName | string;
@@ -166,6 +167,32 @@ export const AdinkraGlyph: React.FC<AdinkraGlyphProps> = ({ name, className = 't
         <path d="M14.5 17.5L3 6V3h3l11.5 11.5" />
         <path d="M13 19l2 2 6-6-2-2" />
         <circle cx="18" cy="18" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  // Aya - Fern: Symbol of endurance, independence, and autonomous self-determination
+  if (norm === 'aya') {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+      >
+        <path d="M12 22V2" />
+        <path d="M12 18c3-1 6-4 6-7" />
+        <path d="M12 18c-3-1-6-4-6-7" />
+        <path d="M12 13c2.5-1 4.5-3.5 4.5-6" />
+        <path d="M12 13c-2.5-1-4.5-3.5-4.5-6" />
+        <path d="M12 8c1.5-1 3-2.5 3-4" />
+        <path d="M12 8c-1.5-1-3-2.5-3-4" />
+        <circle cx="12" cy="2" r="1" fill="currentColor" />
       </svg>
     );
   }

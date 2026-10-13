@@ -29,6 +29,7 @@ import { ShareModal } from './components/ShareModal';
 import { CommentsDrawer } from './components/CommentsDrawer';
 import { AdinkraPhilosophyModal } from './components/AdinkraPhilosophyModal';
 import { GuardrailsCacheModal } from './components/GuardrailsCacheModal';
+import { SelfAmendingStudioModal } from './components/SelfAmendingStudioModal';
 
 const DEFAULT_MODELS: ModelInfo[] = [
   {
@@ -231,6 +232,7 @@ export default function App() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showOptimizerModal, setShowOptimizerModal] = useState(false);
   const [showGuardrailsModal, setShowGuardrailsModal] = useState(false);
+  const [showSelfAmendingModal, setShowSelfAmendingModal] = useState(false);
   const [showCommentsDrawer, setShowCommentsDrawer] = useState(false);
 
   // Load models & workspace history on mount
@@ -641,6 +643,7 @@ export default function App() {
         onOpenPhilosophyModal={() => setShowPhilosophyModal(true)}
         onOpenShareModal={() => setShowShareModal(true)}
         onOpenGuardrailsModal={() => setShowGuardrailsModal(true)}
+        onOpenSelfAmendingModal={() => setShowSelfAmendingModal(true)}
         onExportWorkspace={handleExportWorkspace}
         onRun={handleRun}
         isRunning={isGenerating}
