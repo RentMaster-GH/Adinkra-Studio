@@ -161,11 +161,31 @@ app.get('/api/models', (_req: Request, res: Response) => {
         id: 'gemini-3.8-flash',
         name: 'Gemini 3.8 Flash',
         adinkraSymbol: 'Nyansapo',
-        symbolMeaning: 'Wisdom Knot (Highest general intelligence & velocity)',
+        symbolMeaning: 'Wisdom Knot (Highest general intelligence, extended reasoning & velocity)',
         contextWindow: '1M tokens',
         pricingTier: 'Standard',
         features: ['Multimodal', 'Extended Reasoning', 'Search Grounding', 'Structured JSON'],
         isDefault: true,
+      },
+      {
+        id: 'gemini-3.6-flash',
+        name: 'Gemini 3.6 Flash',
+        adinkraSymbol: 'Akoma Ntoso',
+        symbolMeaning: 'Linked Hearts (High-velocity Flash intelligence with balanced reasoning)',
+        contextWindow: '1M tokens',
+        pricingTier: 'Standard',
+        features: ['Multimodal', 'Balanced Reasoning', 'Low Latency', 'Structured JSON'],
+        isDefault: false,
+      },
+      {
+        id: 'gemini-3.5-flash',
+        name: 'Gemini 3.5 Flash',
+        adinkraSymbol: 'Eban',
+        symbolMeaning: 'Fortress (Resilient, high-throughput Flash intelligence)',
+        contextWindow: '1M tokens',
+        pricingTier: 'Standard',
+        features: ['High Throughput', 'Resilient Inference', 'Search Grounding', 'Fast Execution'],
+        isDefault: false,
       },
       {
         id: 'gemini-3.1-flash-lite',
@@ -181,7 +201,7 @@ app.get('/api/models', (_req: Request, res: Response) => {
         id: 'gemini-3.1-pro-preview',
         name: 'Gemini 3.1 Pro Preview',
         adinkraSymbol: 'Adinkrahene',
-        symbolMeaning: 'Chief of Symbols (Maximum STEM reasoning & code generation)',
+        symbolMeaning: 'Chief of Symbols (Maximum STEM reasoning & code generation upgrade)',
         contextWindow: '2M tokens',
         pricingTier: 'Paid Key Required',
         features: ['Complex Reasoning', 'Code Synthesis', 'Deep Analytical Tasks'],
@@ -370,6 +390,68 @@ app.delete('/api/meta/capabilities/:id', (req: Request, res: Response) => {
   res.json({ success: deleted });
 });
 
+// Circuit breaker & timeout race for upstream Gemini high demand
+const last503Timestamp: Record<string, number> = {};
+
+function isModelTemporarilyOverloaded(modelName: string): boolean {
+  const lastTime = last503Timestamp[modelName];
+  if (!lastTime) return false;
+  if (Date.now() - lastTime < 60_000) return true; // 60s cooldown
+  delete last503Timestamp[modelName];
+  return false;
+}
+
+function markModelOverloaded(modelName: string): void {
+  last503Timestamp[modelName] = Date.now();
+}
+
+function clearModelOverload(modelName: string): void {
+  delete last503Timestamp[modelName];
+}
+
+function callWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label = 'Operation'): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
+function getCandidateModels(requestedModel: string): string[] {
+  // If user requested an upgrade model like gemini-3.1-pro-preview:
+  if (requestedModel === 'gemini-3.1-pro-preview') {
+    const list = ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
+    return isModelTemporarilyOverloaded('gemini-3.1-pro-preview')
+      ? ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.1-pro-preview']
+      : list;
+  }
+
+  // If user requested gemini-3.8-flash (flagship):
+  if (requestedModel === 'gemini-3.8-flash') {
+    if (isModelTemporarilyOverloaded('gemini-3.8-flash')) {
+      return ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    }
+    return ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+  }
+
+  // If user requested gemini-3.6-flash:
+  if (requestedModel === 'gemini-3.6-flash') {
+    return ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+  }
+
+  // If user requested gemini-3.5-flash:
+  if (requestedModel === 'gemini-3.5-flash') {
+    return ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+  }
+
+  const base = [requestedModel, 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+  return Array.from(new Set(base));
+}
+
 // Self-Amend Studio Programming at the command of Developer/Manager
 app.post('/api/meta/amend', async (req: Request, res: Response) => {
   try {
@@ -408,20 +490,29 @@ Rules:
 }`;
 
     let aiRes: any = null;
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    const modelsToTry = getCandidateModels('gemini-3.8-flash');
     for (const m of modelsToTry) {
+      if (isModelTemporarilyOverloaded(m)) continue;
       try {
-        aiRes = await ai.models.generateContent({
-          model: m,
-          contents: `Synthesize capability from command: "${command}"`,
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: 'application/json',
-            temperature: 0.3,
-          },
-        });
-        if (aiRes) break;
+        aiRes = await callWithTimeout(
+          ai.models.generateContent({
+            model: m,
+            contents: `Synthesize capability from command: "${command}"`,
+            config: {
+              systemInstruction: systemPrompt,
+              responseMimeType: 'application/json',
+              temperature: 0.3,
+            },
+          }),
+          6500,
+          `Synthesis on ${m}`
+        );
+        if (aiRes?.text) {
+          clearModelOverload(m);
+          break;
+        }
       } catch (err: any) {
+        markModelOverloaded(m);
         console.warn(`Meta amendment model ${m} failed, trying next:`, err?.message || err);
       }
     }
@@ -433,9 +524,17 @@ Rules:
       } catch {}
     }
 
+    // Clean code fences if present in synthesized code
+    if (parsedResult?.code) {
+      let cleanCode = parsedResult.code.trim();
+      if (cleanCode.startsWith('```')) {
+        cleanCode = cleanCode.replace(/^```[a-zA-Z]*\n?/, '').replace(/```\s*$/, '').trim();
+      }
+      parsedResult.code = cleanCode;
+    }
+
     // Fallback synthesis if offline or upstream unavailable
     if (!parsedResult || !parsedResult.code) {
-      const slug = command.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24);
       parsedResult = {
         name: `Custom Activity: ${command.slice(0, 40)}`,
         description: `Autonomous capability synthesized for developer command: "${command}"`,
@@ -454,7 +553,7 @@ function execute(inputs) {
 }
         `.trim(),
         outputFormat: 'json',
-        defaultInputs: { testParam: 'Sample input data' },
+        defaultInputs: { sampleParam: 'Sample input data' },
         summaryOfAmendment: `Synthesized digital capability for "${command}"`,
       };
     }
@@ -532,25 +631,6 @@ function formatGeminiError(error: any): string {
     return 'Rate limit reached on Gemini API. Please wait a moment before sending another prompt.';
   }
   return rawMsg;
-}
-
-// Simple circuit breaker for upstream 503 high demand
-const last503Timestamp: Record<string, number> = {};
-
-function isModelTemporarilyOverloaded(modelName: string): boolean {
-  const lastTime = last503Timestamp[modelName];
-  if (!lastTime) return false;
-  if (Date.now() - lastTime < 90_000) return true;
-  delete last503Timestamp[modelName];
-  return false;
-}
-
-function markModelOverloaded(modelName: string): void {
-  last503Timestamp[modelName] = Date.now();
-}
-
-function clearModelOverload(modelName: string): void {
-  delete last503Timestamp[modelName];
 }
 
 // Prompt Execution Endpoint (Streaming and Unary with resilience & auto-retry)
@@ -741,15 +821,8 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       }
     }
 
-    // Candidate models to attempt:
-    let modelsToTry = [model];
-    if (model !== 'gemini-3.1-flash-lite') {
-      if (isModelTemporarilyOverloaded(model)) {
-        modelsToTry = ['gemini-3.1-flash-lite', model];
-      } else {
-        modelsToTry.push('gemini-3.1-flash-lite');
-      }
-    }
+    // Candidate models to attempt via smart priority cascade:
+    const modelsToTry = getCandidateModels(model);
 
     if (stream) {
       let streamSuccess = false;
@@ -757,131 +830,140 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       let activeUsedModel = model;
 
       for (const currentModel of modelsToTry) {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const responseStream = await ai.models.generateContentStream({
+        try {
+          // Fast-fail deadline race (6.5s) to establish stream connection & get first token
+          const streamPromise = ai.models.generateContentStream({
+            model: currentModel,
+            contents: contentsPayload,
+            config,
+          });
+
+          const responseStream = await callWithTimeout(
+            streamPromise,
+            6500,
+            `Stream connection for ${currentModel}`
+          );
+
+          const iterator = responseStream[Symbol.asyncIterator]();
+          const firstResult = await callWithTimeout(
+            iterator.next(),
+            5500,
+            `First chunk from ${currentModel}`
+          );
+
+          if (firstResult.done) {
+            continue;
+          }
+
+          if (!res.headersSent) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            res.flushHeaders?.();
+          }
+
+          const firstText = firstResult.value.text || '';
+          let fullText = firstText;
+          res.write(
+            `data: ${JSON.stringify({
+              text: firstText,
+              done: false,
               model: currentModel,
-              contents: contentsPayload,
-              config,
-            });
+              fallbackUsed: currentModel !== model,
+            })}\n\n`
+          );
 
-            const iterator = responseStream[Symbol.asyncIterator]();
-            const firstResult = await iterator.next();
-
-            if (firstResult.done) {
-              continue;
-            }
-
-            if (!res.headersSent) {
-              res.setHeader('Content-Type', 'text/event-stream');
-              res.setHeader('Cache-Control', 'no-cache');
-              res.setHeader('Connection', 'keep-alive');
-              res.flushHeaders?.();
-            }
-
-            const firstText = firstResult.value.text || '';
-            let fullText = firstText;
-            res.write(`data: ${JSON.stringify({ text: firstText, done: false, model: currentModel })}\n\n`);
-
-            while (true) {
-              const { value, done } = await iterator.next();
-              if (done) break;
-              const text = value.text || '';
-              fullText += text;
-              res.write(`data: ${JSON.stringify({ text, done: false, model: currentModel })}\n\n`);
-            }
-
-            const latencyMs = Date.now() - startTime;
-
-            // Output Guardrails (Strict JSON & Auto-Repair)
-            const outputGuardResult = globalGuardrails.evaluateOutput(
-              fullText,
-              parameters.responseFormat || 'text',
-              parameters.responseSchema,
-              parameters.guardrailsConfig
-            );
-
-            const allViolations = [...inputGuardResult.violations, ...outputGuardResult.violations];
-            const guardStatus = outputGuardResult.repairedJson
-              ? 'repaired'
-              : allViolations.length > 0
-              ? 'warned'
-              : 'passed';
-
-            const inputTokens = Math.ceil((prompt?.length || 50) / 4);
-            const outputTokens = Math.ceil(outputGuardResult.sanitizedText.length / 4);
-            const usageData = {
-              inputTokens,
-              outputTokens,
-              totalTokens: inputTokens + outputTokens,
-            };
-
-            // Store in high-speed Prompt Cache for instant subsequent recall
-            if (enableCache) {
-              globalPromptCache.set(
-                inputGuardResult.sanitizedPrompt,
-                systemInstruction || '',
-                currentModel,
-                parameters,
-                {
-                  text: outputGuardResult.sanitizedText,
-                  latencyMs,
-                  usage: usageData,
-                  model: currentModel,
-                }
-              );
-            }
-
+          while (true) {
+            const { value, done } = await iterator.next();
+            if (done) break;
+            const text = value.text || '';
+            fullText += text;
             res.write(
               `data: ${JSON.stringify({
-                done: true,
-                fullText: outputGuardResult.sanitizedText,
-                latencyMs,
+                text,
+                done: false,
                 model: currentModel,
-                cacheHit: false,
-                guardrailStatus: guardStatus,
-                guardrailViolations: allViolations,
+                fallbackUsed: currentModel !== model,
               })}\n\n`
             );
-            res.end();
-            streamSuccess = true;
-            activeUsedModel = currentModel;
-            clearModelOverload(currentModel);
-            break;
-          } catch (err: any) {
-            lastStreamError = err;
-            const errMsg = String(err?.message || '');
-            const isTransient =
-              errMsg.includes('503') ||
-              errMsg.includes('UNAVAILABLE') ||
-              errMsg.includes('high demand') ||
-              errMsg.includes('429');
-
-            if (isTransient) {
-              markModelOverloaded(currentModel);
-            }
-
-            if (res.headersSent) {
-              const formattedError = formatGeminiError(err);
-              res.write(`data: ${JSON.stringify({ error: formattedError, done: true })}\n\n`);
-              res.end();
-              return;
-            }
-
-            if (isTransient && attempt === 0) {
-              await new Promise((r) => setTimeout(r, 600));
-              continue;
-            }
-            console.warn(`Model ${currentModel} stream unavailable, failing over to next model candidate...`);
-            break;
           }
+
+          const latencyMs = Date.now() - startTime;
+
+          // Output Guardrails (Strict JSON & Auto-Repair)
+          const outputGuardResult = globalGuardrails.evaluateOutput(
+            fullText,
+            parameters.responseFormat || 'text',
+            parameters.responseSchema,
+            parameters.guardrailsConfig
+          );
+
+          const allViolations = [...inputGuardResult.violations, ...outputGuardResult.violations];
+          const guardStatus = outputGuardResult.repairedJson
+            ? 'repaired'
+            : allViolations.length > 0
+            ? 'warned'
+            : 'passed';
+
+          const inputTokens = Math.ceil((prompt?.length || 50) / 4);
+          const outputTokens = Math.ceil(outputGuardResult.sanitizedText.length / 4);
+          const usageData = {
+            inputTokens,
+            outputTokens,
+            totalTokens: inputTokens + outputTokens,
+          };
+
+          // Store in high-speed Prompt Cache for instant subsequent recall
+          if (enableCache) {
+            globalPromptCache.set(
+              inputGuardResult.sanitizedPrompt,
+              systemInstruction || '',
+              currentModel,
+              parameters,
+              {
+                text: outputGuardResult.sanitizedText,
+                latencyMs,
+                usage: usageData,
+                model: currentModel,
+              }
+            );
+          }
+
+          res.write(
+            `data: ${JSON.stringify({
+              done: true,
+              fullText: outputGuardResult.sanitizedText,
+              latencyMs,
+              model: currentModel,
+              fallbackUsed: currentModel !== model,
+              cacheHit: false,
+              guardrailStatus: guardStatus,
+              guardrailViolations: allViolations,
+            })}\n\n`
+          );
+          res.end();
+          streamSuccess = true;
+          activeUsedModel = currentModel;
+          clearModelOverload(currentModel);
+          break;
+        } catch (err: any) {
+          lastStreamError = err;
+          markModelOverloaded(currentModel);
+          console.warn(`Model ${currentModel} stream failed or timed out, cascading to next model:`, err?.message || err);
+
+          if (res.headersSent) {
+            const formattedError = formatGeminiError(err);
+            res.write(`data: ${JSON.stringify({ error: formattedError, done: true })}\n\n`);
+            res.end();
+            return;
+          }
+          // Continue loop to try next candidate in cascade
         }
-        if (streamSuccess) break;
       }
 
       if (!streamSuccess) {
         const formatted = formatGeminiError(lastStreamError);
-        console.error('Streaming failed after all candidate models:', lastStreamError);
+        console.error('Streaming failed after all candidate models in cascade:', lastStreamError);
         if (!res.headersSent) {
           res.status(500).json({ error: formatted, model: activeUsedModel });
         } else {
@@ -892,41 +974,30 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       return;
     }
 
-    // Unary response with auto-retry
+    // Unary response with fast cascade
     let response: any = null;
     let lastUnaryError: any = null;
     let usedModel = model;
 
     for (const currentModel of modelsToTry) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          response = await ai.models.generateContent({
+      try {
+        response = await callWithTimeout(
+          ai.models.generateContent({
             model: currentModel,
             contents: contentsPayload,
             config,
-          });
-          usedModel = currentModel;
-          clearModelOverload(currentModel);
-          break;
-        } catch (err: any) {
-          lastUnaryError = err;
-          const errMsg = String(err?.message || '');
-          const isTransient =
-            errMsg.includes('503') ||
-            errMsg.includes('UNAVAILABLE') ||
-            errMsg.includes('high demand') ||
-            errMsg.includes('429');
-          if (isTransient) {
-            markModelOverloaded(currentModel);
-          }
-          if (isTransient && attempt === 0) {
-            await new Promise((r) => setTimeout(r, 700));
-            continue;
-          }
-          break;
-        }
+          }),
+          7000,
+          `Unary request for ${currentModel}`
+        );
+        usedModel = currentModel;
+        clearModelOverload(currentModel);
+        break;
+      } catch (err: any) {
+        lastUnaryError = err;
+        markModelOverloaded(currentModel);
+        console.warn(`Model ${currentModel} unary request failed, cascading to next model:`, err?.message || err);
       }
-      if (response) break;
     }
 
     if (!response) {

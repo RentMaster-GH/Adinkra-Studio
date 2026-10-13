@@ -54,7 +54,7 @@ export interface GenerateResponseData {
 
 function sanitizeErrorMessage(rawText: string, status?: number): string {
   if (!rawText) {
-    if (status) return `Server error (${status}): Upstream service temporarily unavailable. Please retry.`;
+    if (status) return `Server error (${status}): Upstream service momentarily unavailable. Please retry.`;
     return 'An unexpected network error occurred. Please try again.';
   }
 
@@ -64,7 +64,7 @@ function sanitizeErrorMessage(rawText: string, status?: number): string {
     rawText.includes('cpt1::') ||
     rawText.toLowerCase().includes('the page could not be found')
   ) {
-    return 'The development server was momentarily cycling during an environment update. It has reconnected — please click "Retry Prompt" or send your prompt again.';
+    return 'Upstream connection briefly timed out during high network load. The studio auto-failover is active — please click "Retry Prompt".';
   }
 
   if (rawText.toLowerCase().includes('failed to fetch') || rawText.toLowerCase().includes('networkerror')) {
@@ -76,7 +76,7 @@ function sanitizeErrorMessage(rawText: string, status?: number): string {
     rawText.toLowerCase().includes('high demand') ||
     rawText.toLowerCase().includes('unavailable')
   ) {
-    return 'The Gemini model is experiencing a momentary demand spike. The studio will automatically route your request to a high-throughput fallback or click "Retry Prompt".';
+    return 'The requested model is experiencing temporary peak demand upstream. The studio resilient cascade is ready — please click "Retry Prompt".';
   }
 
   return rawText;

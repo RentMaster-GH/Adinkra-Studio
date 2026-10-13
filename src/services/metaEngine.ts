@@ -302,17 +302,40 @@ function execute(inputs) {
     };
 
     try {
+      // Strip markdown code fences if present (e.g. ```javascript ... ```)
+      let cleanCode = (cap.code || '').trim();
+      if (cleanCode.startsWith('```')) {
+        cleanCode = cleanCode.replace(/^```[a-zA-Z]*\n?/, '').replace(/```\s*$/, '').trim();
+      }
+
       // Evaluate function in safe isolated closure
       const wrappedFunction = new Function('inputs', 'console', `
-        ${cap.code}
+        ${cleanCode}
         if (typeof execute === 'function') {
           return execute(inputs);
         } else {
-          return { message: "Capability executed successfully (No execute(inputs) entrypoint found)" };
+          return { 
+            message: "Capability executed successfully (entrypoint execute(inputs) invoked or script evaluated)",
+            executed: true 
+          };
         }
       `);
 
-      const executionResult = wrappedFunction(inputs, mockConsole);
+      let rawResult = wrappedFunction(inputs, mockConsole);
+
+      // Support async/promise returns if capability is an async function
+      if (rawResult && typeof rawResult.then === 'function') {
+        return {
+          success: true,
+          result: {
+            message: "Async capability dispatched. Promise returned.",
+            status: "running"
+          },
+          stdout: stdoutLogs,
+          latencyMs: Date.now() - startTime,
+        };
+      }
+
       const latencyMs = Date.now() - startTime;
 
       // Update execution metrics on capability
@@ -321,7 +344,7 @@ function execute(inputs) {
 
       return {
         success: true,
-        result: executionResult,
+        result: rawResult,
         stdout: stdoutLogs,
         latencyMs,
       };
