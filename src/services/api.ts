@@ -1,3 +1,9 @@
+const ADINKRA_HOST = ['api', 'credibleartisans', 'com'].join('.');
+const ADINKRA_API_BASE = (
+  (import.meta as any).env?.VITE_BACKEND_URL ||
+  ('https://' + ADINKRA_HOST + '/public/adinkra')
+).replace(/\/$/, '');
+
 import { 
   VersionSnapshot, 
   WorkspaceComment, 
@@ -127,14 +133,14 @@ async function fetchWithRetry(
 
 export const api = {
   async getModels(): Promise<ModelInfo[]> {
-    const res = await fetch('/api/models');
+    const res = await fetch((ADINKRA_API_BASE + '/api/models'));
     if (!res.ok) throw new Error('Failed to fetch models');
     const data = await res.json();
     return data.models;
   },
 
   async getWorkspaceHistory(): Promise<{ versions: VersionSnapshot[]; comments: WorkspaceComment[] }> {
-    const res = await fetch('/api/workspace/history');
+    const res = await fetch((ADINKRA_API_BASE + '/api/workspace/history'));
     if (!res.ok) throw new Error('Failed to fetch workspace history');
     return res.json();
   },
@@ -147,7 +153,7 @@ export const api = {
     author?: any;
     metrics?: any;
   }): Promise<VersionSnapshot> {
-    const res = await fetch('/api/workspace/commit', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/workspace/commit'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -165,7 +171,7 @@ export const api = {
     target: 'system' | 'prompt' | 'config' | 'general';
     author?: any;
   }): Promise<WorkspaceComment> {
-    const res = await fetch('/api/workspace/comment', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/workspace/comment'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -176,7 +182,7 @@ export const api = {
   },
 
   async toggleResolveComment(id: string): Promise<WorkspaceComment> {
-    const res = await fetch('/api/workspace/comment/resolve', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/workspace/comment/resolve'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
@@ -192,7 +198,7 @@ export const api = {
   ): Promise<GenerateResponseData> {
     if (payload.stream && onChunk) {
       const startTime = Date.now();
-      const response = await fetchWithRetry('/api/generate', {
+      const response = await fetchWithRetry((ADINKRA_API_BASE + '/api/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, stream: true }),
@@ -303,7 +309,7 @@ export const api = {
         guardrailViolations: streamGuardrailViolations,
       };
     } else {
-      const res = await fetchWithRetry('/api/generate', {
+      const res = await fetchWithRetry((ADINKRA_API_BASE + '/api/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, stream: false }),
@@ -330,7 +336,7 @@ export const api = {
     prompt: string;
     systemInstruction?: string;
   }): Promise<any> {
-    const res = await fetchWithRetry('/api/optimize-prompt', {
+    const res = await fetchWithRetry((ADINKRA_API_BASE + '/api/optimize-prompt'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -344,18 +350,18 @@ export const api = {
   },
 
   async getCacheStats(): Promise<CacheStats> {
-    const res = await fetch('/api/cache/stats');
+    const res = await fetch((ADINKRA_API_BASE + '/api/cache/stats'));
     if (!res.ok) throw new Error('Failed to fetch cache stats');
     return res.json();
   },
 
   async clearCache(): Promise<void> {
-    const res = await fetch('/api/cache/clear', { method: 'POST' });
+    const res = await fetch((ADINKRA_API_BASE + '/api/cache/clear'), { method: 'POST' });
     if (!res.ok) throw new Error('Failed to clear cache');
   },
 
   async deleteCacheEntry(id: string): Promise<boolean> {
-    const res = await fetch(`/api/cache/entry/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const res = await fetch(`${ADINKRA_API_BASE}/api/cache/entry/${encodeURIComponent(id)}`, { method: 'DELETE' });
     if (!res.ok) return false;
     const data = await res.json();
     return data.success;
@@ -369,7 +375,7 @@ export const api = {
     schema?: string;
     config?: Partial<GuardrailsConfig>;
   }): Promise<any> {
-    const res = await fetch('/api/guardrails/test', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/guardrails/test'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -379,7 +385,7 @@ export const api = {
   },
 
   async authMeta(uid: string): Promise<MetaAuthSession> {
-    const res = await fetch('/api/meta/auth', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/meta/auth'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid }),
@@ -394,7 +400,7 @@ export const api = {
     amendments: MetaAmendment[];
     authorizedProfiles: any[];
   }> {
-    const res = await fetch('/api/meta/capabilities');
+    const res = await fetch((ADINKRA_API_BASE + '/api/meta/capabilities'));
     if (!res.ok) throw new Error('Failed to fetch capabilities');
     return res.json();
   },
@@ -406,7 +412,7 @@ export const api = {
     latencyMs: number;
     error?: string;
   }> {
-    const res = await fetch('/api/meta/capabilities/execute', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/meta/capabilities/execute'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, inputs }),
@@ -419,7 +425,7 @@ export const api = {
   },
 
   async saveMetaCapability(capability: MetaCapability, uid: string): Promise<MetaCapability> {
-    const res = await fetch('/api/meta/capabilities/save', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/meta/capabilities/save'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ capability, uid }),
@@ -430,7 +436,7 @@ export const api = {
   },
 
   async deleteMetaCapability(id: string, uid: string): Promise<boolean> {
-    const res = await fetch(`/api/meta/capabilities/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${ADINKRA_API_BASE}/api/meta/capabilities/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid }),
@@ -446,7 +452,7 @@ export const api = {
     dryRun: any;
     message: string;
   }> {
-    const res = await fetch('/api/meta/amend', {
+    const res = await fetch((ADINKRA_API_BASE + '/api/meta/amend'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command, uid }),
