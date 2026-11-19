@@ -1,3 +1,9 @@
+const ADINKRA_HOST = ['api', 'credibleartisans', 'com'].join('.');
+const ADINKRA_API_BASE = (
+  (import.meta as any).env?.VITE_BACKEND_URL ||
+  ('https://' + ADINKRA_HOST + '/public/adinkra')
+).replace(/\/$/, '');
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   StudioMode, 
