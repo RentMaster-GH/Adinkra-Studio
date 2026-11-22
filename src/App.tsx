@@ -647,7 +647,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0c0e14] text-slate-100 font-sans">
+    <div className="flex flex-col min-h-screen lg:h-screen w-full max-w-[100vw] overflow-x-hidden overflow-y-auto lg:overflow-hidden bg-[#0c0e14] text-slate-100 font-sans">
       {/* Studio Header */}
       <Header
         mode={mode}
@@ -680,11 +680,11 @@ export default function App() {
       />
 
       {/* Main Workspace Body based on Mode */}
-      <main className="flex-1 flex min-h-0 overflow-hidden">
+      <main className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto lg:overflow-hidden">
         {mode === 'playground' && (
-          <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto lg:overflow-hidden">
             {/* Left & Middle Column: System Instructions + Prompt Editor + Output */}
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div className="flex-1 flex flex-col min-h-0 overflow-y-auto lg:overflow-hidden">
               {/* System Instructions Pane */}
               <SystemInstructionsPane
                 systemInstruction={systemInstruction}
