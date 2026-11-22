@@ -822,7 +822,10 @@ app.post('/api/generate', async (req: Request, res: Response) => {
     }
 
     // Candidate models to attempt via smart priority cascade:
-    const modelsToTry = getCandidateModels(model);
+    const fastModels = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    const modelsToTry = fastModels.includes(model)
+      ? [model, ...fastModels.filter((m) => m !== model)]
+      : [...fastModels, ...getCandidateModels(model).filter((m) => !fastModels.includes(m))];
 
     if (stream) {
       let streamSuccess = false;
@@ -840,14 +843,14 @@ app.post('/api/generate', async (req: Request, res: Response) => {
 
           const responseStream = await callWithTimeout(
             streamPromise,
-            6500,
+            2500,
             `Stream connection for ${currentModel}`
           );
 
           const iterator = responseStream[Symbol.asyncIterator]();
           const firstResult = await callWithTimeout(
             iterator.next(),
-            5500,
+            2500,
             `First chunk from ${currentModel}`
           );
 
