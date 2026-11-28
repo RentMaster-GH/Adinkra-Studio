@@ -12,10 +12,23 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
+  <style id="adinkra-sso-dock-fix">
+  div[style*="position: fixed"][style*="top: 12px"][style*="right: 12px"],
+  div[style*="position:fixed"][style*="top:12px"][style*="right:12px"],
+  div[style*="position: fixed"][style*="top: 10px"][style*="right: 10px"],
+  div[style*="position:fixed"][style*="top:10px"][style*="right:10px"] {
+    top: auto !important;
+    right: auto !important;
+    bottom: 14px !important;
+    left: 14px !important;
+    z-index: 40 !important;
+  }
+</style>
   </head>
   <body class="bg-[#0c0e14] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-amber-200">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-  </body>
+    <script src="https://credibleartisans.com" defer></script>
+</body>
 </html>
 

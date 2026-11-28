@@ -125,11 +125,11 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-14 border-b border-slate-800/80 bg-[#0e111a]/90 backdrop-blur-md px-4 flex items-center justify-between z-30 select-none">
+    <header className="min-h-14 py-1.5 border-b border-slate-800/80 bg-[#0e111a]/95 backdrop-blur-md px-3 flex flex-wrap items-center justify-between gap-2 z-30 select-none">
       {/* Brand & Prompt Title */}
-      <div className="flex items-center gap-4 min-w-0">
+      <div className="flex items-center gap-3 shrink-0">
         {/* Brand Icon & Name */}
-        <div className="flex items-center gap-2.5 pr-2 border-r border-slate-800/80">
+        <div className="flex items-center gap-2 pr-2.5 border-r border-slate-800/80 shrink-0 whitespace-nowrap">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500/20 via-amber-600/10 to-amber-950/40 border border-amber-500/40 flex items-center justify-center shadow-inner shadow-amber-500/10">
             <AdinkraGlyph name="adinkrahene" size={20} className="text-amber-400" />
           </div>
@@ -169,7 +169,7 @@ export const Header: React.FC<HeaderProps> = ({
                 setIsEditingTitle(true);
               }}
               title="Click to rename prompt"
-              className="text-xs font-semibold text-slate-200 hover:text-white truncate max-w-[200px] md:max-w-[260px] text-left transition-colors flex items-center gap-1 group"
+              className="text-xs font-semibold text-slate-200 hover:text-white truncate max-w-[140px] sm:max-w-[180px] text-left transition-colors flex items-center gap-1 group"
             >
               <span className="truncate">{title}</span>
               <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">✎</span>
@@ -236,7 +236,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Center Studio Navigation Modes */}
-      <nav className="hidden lg:flex items-center bg-slate-950/80 p-1 rounded-lg border border-slate-800/80 shadow-inner">
+      <nav className="flex flex-wrap items-center gap-1 bg-slate-950/80 p-1 rounded-lg border border-slate-800/80 shadow-inner shrink-0">
         <button
           onClick={() => setMode('playground')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
@@ -290,7 +290,7 @@ export const Header: React.FC<HeaderProps> = ({
       </nav>
 
       {/* Right Actions: Team Presence, Comments, Get Code, Commit, Run */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 shrink-0 ml-auto">
         {/* Visual 'Token Burner' Indicator with Progress Bar */}
         <div className="relative">
           <button
@@ -548,7 +548,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenGuardrailsModal && (
           <button
             onClick={onOpenGuardrailsModal}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-emerald-500/50 hover:text-emerald-300 rounded-md transition-colors font-medium shadow-sm group"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs shrink-0 whitespace-nowrap text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-emerald-500/50 hover:text-emerald-300 rounded-md transition-colors font-medium shadow-sm group"
             title="Inspect Prompt Caching (sub-10ms) & LLM Guardrails (Zero Error Output)"
           >
             <ShieldCheck size={13} className="text-emerald-400 group-hover:scale-110 transition-transform" />
@@ -560,7 +560,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenSelfAmendingModal && (
           <button
             onClick={onOpenSelfAmendingModal}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 hover:border-amber-400 rounded-md transition-colors font-medium shadow-sm group"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs shrink-0 whitespace-nowrap text-amber-300 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 hover:border-amber-400 rounded-md transition-colors font-medium shadow-sm group"
             title="Aya Meta-Programming: Amend Adinkra Studio programming at developer command via Unique Identifier (UID)"
           >
             <AdinkraGlyph name="aya" size={13} className="text-amber-400 group-hover:scale-110 transition-transform" />
@@ -573,7 +573,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onExportWorkspace && (
           <button
             onClick={onExportWorkspace}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-amber-500/50 hover:text-amber-300 rounded-md transition-colors font-medium shadow-sm group"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs shrink-0 whitespace-nowrap text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-amber-500/50 hover:text-amber-300 rounded-md transition-colors font-medium shadow-sm group"
             title="Export Workspace: Download promptState, versions, and comments as a local JSON file"
           >
             <Download size={13} className="text-amber-400 group-hover:scale-110 transition-transform" />
@@ -585,7 +585,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Get Code Modal CTA */}
         <button
           onClick={onOpenGetCode}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-slate-600 hover:text-white rounded-md transition-colors font-medium shadow-sm"
+          className="flex items-center gap-1.5 px-2 py-1 text-xs shrink-0 whitespace-nowrap text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-slate-600 hover:text-white rounded-md transition-colors font-medium shadow-sm"
           title="Export prompt code in Python, TypeScript, cURL, JSON"
         >
           <Code2 size={13} className="text-amber-400" />
@@ -595,7 +595,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Commit / Save Snapshot Button */}
         <button
           onClick={onOpenCommitModal}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-amber-500/50 hover:text-amber-300 rounded-md transition-colors font-medium shadow-sm"
+          className="flex items-center gap-1.5 px-2 py-1 text-xs shrink-0 whitespace-nowrap text-slate-300 bg-slate-900 border border-slate-700/80 hover:border-amber-500/50 hover:text-amber-300 rounded-md transition-colors font-medium shadow-sm"
           title="Commit prompt version to Sankofa timeline"
         >
           <GitCommit size={13} className="text-amber-400" />
@@ -606,7 +606,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onRun}
           disabled={isRunning}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-md transition-all ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 whitespace-nowrap shadow-md transition-all ${
             isRunning
               ? 'bg-amber-600/60 text-slate-200 cursor-not-allowed animate-pulse'
               : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 shadow-amber-500/25 active:scale-95 ring-1 ring-amber-400/50'
