@@ -9,6 +9,18 @@ interface SystemInstructionsPaneProps {
   commentCount?: number;
 }
 
+const OUTPUT_LANGUAGES = [
+  { id: 'auto', label: '🌐 Auto / English', directive: '' },
+  { id: 'twi', label: '🇬🇭 Asante Twi', directive: '[OUTPUT LANGUAGE DIRECTIVE]: Respond fluently and naturally in Asante Twi (Akan), incorporating authentic Akan proverbs and cultural nuance where appropriate.' },
+  { id: 'twi-en', label: '🇬🇭 Twi + English Bilingual', directive: '[OUTPUT LANGUAGE DIRECTIVE]: Provide every section bilingually with clear Asante Twi first followed by its English translation.' },
+  { id: 'ga', label: '🇬🇭 Ga', directive: '[OUTPUT LANGUAGE DIRECTIVE]: Respond fluently and naturally in the Ga language of Accra, Ghana.' },
+  { id: 'ewe', label: '🇬🇭 Ewe', directive: '[OUTPUT LANGUAGE DIRECTIVE]: Respond fluently and naturally in the Ewe language.' },
+  { id: 'hausa', label: '🇳🇬 Hausa', directive: '[OUTPUT LANGUAGE DIRECTIVE]: Respond fluently and naturally in Hausa.' },
+  { id: 'fr', label: '🇫🇷 Français (French)', directive: '[OUTPUT LANGUAGE DIRECTIVE]: Réponds toujours en français clair, précis et bien structuré.' },
+  { id: 'es', label: '🇪🇸 Español (Spanish)', directive: '[OUTPUT LANGUAGE DIRECTIVE]: Responde siempre en español claro, preciso y bien estructurado.' },
+  { id: 'ar', label: '🇸🇦 العربية (Arabic)', directive: '[OUTPUT LANGUAGE DIRECTIVE]: أجب دائمًا باللغة العربية الفصحى الواضحة والمنظمة.' },
+];
+
 const PRESETS = [
   {
     name: 'Cultural & Cognitive Synthesizer',
@@ -44,6 +56,18 @@ export const SystemInstructionsPane: React.FC<SystemInstructionsPaneProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
+  const [selectedLang, setSelectedLang] = useState('auto');
+
+  const handleLanguageChange = (langId: string) => {
+    setSelectedLang(langId);
+    const entry = OUTPUT_LANGUAGES.find((l) => l.id === langId);
+    const cleaned = (systemInstruction || '').replace(/\n?\[OUTPUT LANGUAGE DIRECTIVE\]:.*$/s, '').trim();
+    if (!entry || !entry.directive) {
+      setSystemInstruction(cleaned);
+    } else {
+      setSystemInstruction((cleaned ? cleaned + '\n\n' : '') + entry.directive);
+    }
+  };
 
   const tokenEstimate = Math.ceil((systemInstruction?.length || 0) / 4);
 
@@ -71,7 +95,21 @@ export const SystemInstructionsPane: React.FC<SystemInstructionsPaneProps> = ({
           )}
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 1-Click Output Language Selector */}
+          <select
+            value={selectedLang}
+            onChange={(e) => handleLanguageChange(e.target.value)}
+            title="Choose AI Response Language (Asante Twi, Ga, Ewe, Hausa, French, Spanish, Arabic, English)"
+            className="px-2 py-1 text-[11px] font-medium rounded border border-amber-500/40 bg-slate-900 text-amber-200 hover:border-amber-400 focus:outline-none cursor-pointer"
+          >
+            {OUTPUT_LANGUAGES.map((lang) => (
+              <option key={lang.id} value={lang.id} className="bg-slate-950 text-slate-100">
+                {lang.label}
+              </option>
+            ))}
+          </select>
+
           {/* Preset templates dropdown */}
           <div className="relative">
             <button
