@@ -290,7 +290,7 @@ export const Header: React.FC<HeaderProps> = ({
       </nav>
 
       {/* Right Actions: Team Presence, Comments, Get Code, Commit, Run */}
-      <div className="flex flex-wrap items-center gap-1.5 shrink-0 ml-auto">
+      <div className="w-full flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-800/70">
         {/* Visual 'Token Burner' Indicator with Progress Bar */}
         <div className="relative">
           <button
@@ -491,7 +491,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Active Collaborators Presence */}
-        <div className="flex items-center gap-1.5 pl-1 pr-2 border-r border-slate-800/80">
+        <div className="flex items-center gap-2.5 pl-1 pr-3 border-r border-slate-800/80 shrink-0 whitespace-nowrap">
           <div className="flex -space-x-1.5 items-center">
             {collaborators.map((c) => (
               <div
@@ -521,7 +521,7 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </div>
 
-        {/* Comments Drawer Button */}
+        <div className="flex flex-wrap items-center gap-1.5 ml-auto">{/* Comments Drawer Button */}
         <button
           onClick={onToggleComments}
           className="relative p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-md transition-colors"
@@ -629,6 +629,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
       </div>
+    </div>
     </header>
   );
 };
